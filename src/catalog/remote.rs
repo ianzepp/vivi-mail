@@ -39,57 +39,7 @@ pub struct RemoteIdentityAttachResult {
     pub ambiguous: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum RemoteReferenceStatus {
-    Ready(RemoteIdentity),
-    MissingHandle {
-        account: String,
-        handle: String,
-    },
-    MissingRemoteIdentity {
-        account: String,
-        handle: String,
-    },
-    StaleUidValidity {
-        account: String,
-        handle: String,
-        stored_uidvalidity: u32,
-        current_uidvalidity: u32,
-    },
-}
-
 impl Catalog {
-    pub fn remote_reference_status(
-        &self,
-        account: &str,
-        handle: &str,
-        current_uidvalidity: Option<u32>,
-    ) -> RemoteReferenceStatus {
-        let Some(entry) = self.entry(account, handle) else {
-            return RemoteReferenceStatus::MissingHandle {
-                account: account.to_string(),
-                handle: handle.to_string(),
-            };
-        };
-        let Some(remote) = entry.remote.clone() else {
-            return RemoteReferenceStatus::MissingRemoteIdentity {
-                account: account.to_string(),
-                handle: handle.to_string(),
-            };
-        };
-        if let Some(current) = current_uidvalidity
-            && remote.uidvalidity != current
-        {
-            return RemoteReferenceStatus::StaleUidValidity {
-                account: account.to_string(),
-                handle: handle.to_string(),
-                stored_uidvalidity: remote.uidvalidity,
-                current_uidvalidity: current,
-            };
-        }
-        RemoteReferenceStatus::Ready(remote)
-    }
-
     /// Attach remote identity information to catalog entries based on candidates.
     ///
     /// # Errors

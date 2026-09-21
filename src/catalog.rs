@@ -18,8 +18,7 @@ mod remote;
 mod tests;
 
 pub use remote::{
-    RemoteIdentity, RemoteIdentityAttachResult, RemoteIdentityCandidate, RemoteReferenceStatus,
-    attach_remote_identities,
+    RemoteIdentity, RemoteIdentityAttachResult, RemoteIdentityCandidate, attach_remote_identities,
 };
 
 /// Catalog directory inside the mail root.
@@ -29,6 +28,8 @@ const CATALOG_DIR: &str = ".vivarium";
 const STORAGE_DB_FILENAME: &str = "storage.sqlite";
 
 /// Stable handle prefix length (hex chars of SHA-256).
+/// Handle width in hex characters, used to build test handles.
+#[cfg(test)]
 const HANDLE_LENGTH: usize = 16;
 
 /// A message row in the catalog.
@@ -193,6 +194,7 @@ impl Catalog {
 }
 
 /// Build a stable handle from raw message bytes.
+#[cfg(test)]
 #[must_use]
 pub fn handle_from_bytes(data: &[u8]) -> String {
     let hash = Sha256::digest(data);

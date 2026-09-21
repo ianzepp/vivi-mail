@@ -157,11 +157,11 @@ fn attach_remote_identity_matches_by_rfc_message_id() {
         .unwrap();
 
     assert_eq!(result.matched, 1);
-    let RemoteReferenceStatus::Ready(remote) =
-        catalog.remote_reference_status("acct", "abc123", Some(9))
-    else {
-        panic!("expected a ready remote reference");
-    };
+    let remote = catalog
+        .entry("acct", "abc123")
+        .expect("catalog entry")
+        .remote
+        .expect("attached remote identity");
     assert_eq!(remote.account, "acct");
     assert_eq!(remote.provider, "protonmail");
     assert_eq!(remote.remote_mailbox, "INBOX");
@@ -193,48 +193,13 @@ fn attach_remote_identity_does_not_use_legacy_uid_filename() {
 
     assert_eq!(result.matched, 0);
     assert_eq!(result.missing_local, 1);
-    assert!(matches!(
-        catalog.remote_reference_status("acct", "abc123", None),
-        RemoteReferenceStatus::MissingRemoteIdentity { .. }
-    ));
-}
-
-#[test]
-fn remote_reference_status_reports_missing_and_stale_states() {
-    let tmp = tempfile::tempdir().unwrap();
-    let mut catalog = Catalog::open(tmp.path()).unwrap();
-    let existing = entry(
-        "abc123",
-        "/mail/INBOX/new/inbox-42.eml",
-        "acct",
-        "INBOX",
-        "new",
+    assert!(
+        catalog
+            .entry("acct", "abc123")
+            .expect("catalog entry")
+            .remote
+            .is_none()
     );
-    let mut existing = existing;
-    existing.rfc_message_id = "one@example.com".into();
-    catalog.upsert(&existing).unwrap();
-
-    assert!(matches!(
-        catalog.remote_reference_status("acct", "missing", None),
-        RemoteReferenceStatus::MissingHandle { .. }
-    ));
-    assert!(matches!(
-        catalog.remote_reference_status("acct", "abc123", None),
-        RemoteReferenceStatus::MissingRemoteIdentity { .. }
-    ));
-
-    catalog
-        .attach_remote_identities(&[candidate("acct", "INBOX", "inbox", 42, Some(9))])
-        .unwrap();
-
-    assert!(matches!(
-        catalog.remote_reference_status("acct", "abc123", Some(10)),
-        RemoteReferenceStatus::StaleUidValidity {
-            stored_uidvalidity: 9,
-            current_uidvalidity: 10,
-            ..
-        }
-    ));
 }
 
 #[test]

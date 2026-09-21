@@ -387,7 +387,7 @@ pub struct LabelArgs {
 /// mail dispatch stays self-contained inside this crate.
 #[derive(Debug, Subcommand)]
 pub enum MailCommand {
-    /// Initialize vivarium config directory and files
+    /// Initialize the vivi-mail config directory and files
     Init,
 
     #[cfg(feature = "outbox")]

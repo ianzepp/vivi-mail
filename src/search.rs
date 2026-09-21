@@ -87,7 +87,7 @@ pub(crate) fn indexed_lexical_results_page(
         && Storage::open(mail_root)?.count_messages_for_account(account)? > 0
     {
         return Err(VivariumError::Message(format!(
-            "email index is empty for account '{account}'; run `vivi index rebuild --account {account}` or `vivi sync --index --account {account}`"
+            "email index is empty for account '{account}'; run `vivi-mail index rebuild --account {account}` or `vivi-mail sync --index --account {account}`"
         )));
     }
     let (matches, total) = index.search_messages(account, query, limit, offset, filters)?;

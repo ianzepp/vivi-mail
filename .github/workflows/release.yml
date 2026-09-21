@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        run: |
+          rustup target add ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf vivi-mail-${{ matrix.target }}.tar.gz vivi-mail
+          mv vivi-mail-${{ matrix.target }}.tar.gz ../../../
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vivi-mail-${{ matrix.target }}
+          path: vivi-mail-${{ matrix.target }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vivi-mail-aarch64-apple-darwin/vivi-mail-aarch64-apple-darwin.tar.gz
+            vivi-mail-x86_64-apple-darwin/vivi-mail-x86_64-apple-darwin.tar.gz
+            vivi-mail-x86_64-unknown-linux-gnu/vivi-mail-x86_64-unknown-linux-gnu.tar.gz
+          generate_release_notes: true

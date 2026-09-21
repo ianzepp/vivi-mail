@@ -2,8 +2,7 @@
 //!
 //! Remote side effects are authorized by the selected account's capabilities
 //! at execution time. Command names, queue provenance, and provider folder
-//! aliases are never authorization. Local mailspace operations are separate
-//! from external account mutation policy.
+//! aliases are never authorization.
 
 use crate::VivariumError;
 use crate::config::{Account, MutationPolicy};

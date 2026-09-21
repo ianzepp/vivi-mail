@@ -124,24 +124,6 @@ impl Storage {
         )
     }
 
-    /// List active work-role messages (tasks/needs/wants/done) updated at or
-    /// after `since`. These are the backlog audit candidates: items that
-    /// existed while the backlog graph did, so citizenship is expected.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query or handle
-    /// decoration fails.
-    pub fn work_role_messages_updated_since(
-        &self,
-        since: &str,
-    ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        self.list_messages_by_query(
-            "WHERE m.local_role IN ('tasks', 'needs', 'wants', 'done') \
-             AND m.deleted_at IS NULL AND m.updated_at >= ?1",
-            params![since],
-        )
-    }
-
     /// List messages filtered by account and a single role.
     ///
     /// # Errors
@@ -384,42 +366,6 @@ impl Storage {
                 |row| row.get(0),
             )
             .map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))
-    }
-
-    /// Count non-deleted messages for an account and role, optionally filtered by read state.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query fails.
-    pub fn count_messages_for_account_role(
-        &self,
-        account: &str,
-        local_role: &str,
-        read_state: Option<bool>,
-    ) -> Result<usize, VivariumError> {
-        let read_clause = if read_state.is_some() {
-            " AND read_state = ?3"
-        } else {
-            ""
-        };
-        let absorb_clause = match local_role {
-            "inbox" | "tasks" | "needs" | "wants" | "memos" => " AND absorbed_at IS NULL",
-            _ => "",
-        };
-        let sql = format!(
-            "SELECT COUNT(*) FROM messages
-             WHERE account = ?1 AND local_role = ?2 AND deleted_at IS NULL{read_clause}{absorb_clause}"
-        );
-        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
-            VivariumError::Other(format!("failed to prepare message count query: {e}"))
-        })?;
-        let count = if let Some(read_state) = read_state {
-            stmt.query_row(params![account, local_role, i64::from(read_state)], |row| {
-                row.get(0)
-            })
-        } else {
-            stmt.query_row(params![account, local_role], |row| row.get(0))
-        };
-        count.map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))
     }
 
     /// Map of message identifier → byte size for a given local role.

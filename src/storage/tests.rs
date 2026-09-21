@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-fn schema_upgrade_creates_mid_version_tables_on_old_databases() {
-    // Simulate a mailspace created at schema 6 before the goals and
-    // work-graph tables existed: metadata row only, no new tables.
+fn schema_upgrade_creates_tables_on_old_databases() {
+    // Simulate a database created at schema 6, before the metadata table
+    // existed: a metadata row only, no other tables.
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("mail.sqlite");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -15,7 +15,7 @@ fn schema_upgrade_creates_mid_version_tables_on_old_databases() {
     schema::ensure_schema(&conn).unwrap();
 
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    for table in ["work_graphs", "work_graph_nodes", "mailspace_goals"] {
+    for table in ["blobs", "messages", "remote_bindings", "message_metadata"] {
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -36,71 +36,93 @@ fn schema_upgrade_creates_mid_version_tables_on_old_databases() {
 }
 
 #[test]
-fn schema_v7_adds_node_kind_and_edge_style_on_upgrade() {
-    // Simulate a schema-7 mailspace whose graph tables predate node kinds
-    // and edge styles: one node and one edge without the new columns.
+fn existing_database_with_legacy_columns_and_mailspace_tables_still_works() {
+    // Databases written before the mailspace tables moved to their own crate
+    // carry absorbed_at/absorbed_by on `messages`, a mailspace_events table,
+    // and the work-graph tables. None of them are created here any more, so
+    // this pins that an existing database keeps working untouched.
     let tmp = tempfile::tempdir().unwrap();
-    let db_path = tmp.path().join("mail.sqlite");
+    let db_path = tmp.path().join("storage.sqlite");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     conn.execute_batch(
         "CREATE TABLE storage_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-         INSERT INTO storage_metadata (key, value) VALUES ('schema_version', '7');
-         CREATE TABLE work_graph_nodes (
-           handle TEXT PRIMARY KEY,
-           graph_handle TEXT NOT NULL,
-           source_id TEXT NOT NULL,
-           label TEXT NOT NULL,
-           state TEXT NOT NULL DEFAULT 'open',
-           subgraph TEXT,
-           created_at TEXT NOT NULL,
+         INSERT INTO storage_metadata (key, value) VALUES ('schema_version', '8');
+         CREATE TABLE blobs (
+           content_id TEXT PRIMARY KEY,
+           blob_relpath TEXT NOT NULL UNIQUE,
+           byte_size INTEGER NOT NULL,
+           rfc_message_id TEXT,
+           parsed_at TEXT NOT NULL
+         );
+         CREATE TABLE messages (
+           message_id TEXT PRIMARY KEY,
+           account TEXT NOT NULL,
+           content_id TEXT NOT NULL REFERENCES blobs(content_id) ON DELETE RESTRICT,
+           local_role TEXT NOT NULL,
+           read_state INTEGER NOT NULL DEFAULT 0,
+           starred INTEGER NOT NULL DEFAULT 0,
+           draft_state TEXT,
+           discovered_at TEXT NOT NULL,
            updated_at TEXT NOT NULL,
-           UNIQUE (graph_handle, source_id)
+           deleted_at TEXT,
+           absorbed_at TEXT,
+           absorbed_by TEXT
          );
-         CREATE TABLE work_graph_edges (
-           handle TEXT PRIMARY KEY,
-           graph_handle TEXT NOT NULL,
-           from_node TEXT NOT NULL,
-           to_node TEXT NOT NULL,
-           label TEXT,
-           created_at TEXT NOT NULL,
-           UNIQUE (graph_handle, from_node, to_node)
+         CREATE TABLE remote_bindings (
+           message_id TEXT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
+           account TEXT NOT NULL,
+           provider TEXT NOT NULL,
+           remote_mailbox TEXT NOT NULL,
+           remote_uid INTEGER NOT NULL,
+           remote_uidvalidity INTEGER NOT NULL,
+           last_verified_at TEXT NOT NULL,
+           stale INTEGER NOT NULL DEFAULT 0,
+           UNIQUE (account, remote_mailbox, remote_uidvalidity, remote_uid)
          );
-         INSERT INTO work_graph_nodes
-           (handle, graph_handle, source_id, label, state, created_at, updated_at)
-           VALUES ('nod_x', 'gph_x', 'res_provision', 'Provision', 'open', 't', 't');
-         INSERT INTO work_graph_edges
-           (handle, graph_handle, from_node, to_node, label, created_at)
-           VALUES ('edg_x', 'gph_x', 'nod_a', 'nod_x', NULL, 't');",
+         CREATE TABLE message_metadata (
+           content_id TEXT PRIMARY KEY REFERENCES blobs(content_id) ON DELETE CASCADE,
+           date TEXT NOT NULL,
+           from_addr TEXT NOT NULL,
+           to_addr TEXT NOT NULL,
+           cc_addr TEXT NOT NULL,
+           bcc_addr TEXT NOT NULL,
+           subject TEXT NOT NULL,
+           normalized_message_id TEXT
+         );
+         CREATE TABLE mailspace_events (
+           event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+           occurred_at TEXT NOT NULL
+         );
+         CREATE TABLE work_graphs (handle TEXT PRIMARY KEY);",
     )
     .unwrap();
     drop(conn);
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    schema::ensure_schema(&conn).unwrap();
 
-    let kind: String = conn
-        .query_row(
-            "SELECT kind FROM work_graph_nodes WHERE handle = 'nod_x'",
-            [],
-            |row| row.get(0),
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let raw = message_bytes("legacy@example.com", "body");
+    let stored = storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:11".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "acct".into(),
+                    provider: "protonmail".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 11,
+                    remote_uidvalidity: 42,
+                }),
+            },
+            &raw,
         )
         .unwrap();
-    assert_eq!(kind, "task");
-    let style: String = conn
-        .query_row(
-            "SELECT style FROM work_graph_edges WHERE handle = 'edg_x'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(style, "solid");
-    let version: String = conn
-        .query_row(
-            "SELECT value FROM storage_metadata WHERE key = 'schema_version'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(version, "8");
+
+    assert!(storage.message_by_id(&stored.message_id).unwrap().is_some());
+    assert_eq!(storage.count_messages_for_account("acct").unwrap(), 1);
 }
 
 #[test]
@@ -570,7 +592,7 @@ fn remote(mailbox: &str, uid: u32) -> RemoteIdentity {
 }
 
 #[test]
-fn move_message_to_role_rejects_wrong_account() {
+fn mark_message_deleted_scopes_to_the_given_account() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("move@example.com", "body");
     let mut storage = Storage::open(tmp.path()).unwrap();
@@ -595,10 +617,11 @@ fn move_message_to_role_rejects_wrong_account() {
         )
         .unwrap();
 
-    let err = storage
-        .move_message_to_role("other", &stored.message_id, "archive")
-        .unwrap_err();
-    assert!(err.to_string().contains("not found"));
+    // Another account's handle must not reach this message.
+    let changed = storage
+        .mark_message_deleted("other", &stored.message_id)
+        .unwrap();
+    assert!(!changed);
 
     // Original message must be unchanged.
     let sizes = storage.local_sizes_by_role("inbox").unwrap();

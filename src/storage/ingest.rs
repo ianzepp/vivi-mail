@@ -1,9 +1,8 @@
-use super::events::append_event_tx;
 use super::metadata::ParsedMetadata;
 use super::{
-    MailspaceEventInput, MessageIngestRequest, RemoteBindingInput, Storage, StoredMessage, Utc,
-    VivariumError, blob_relpath, fallback_message_id, params, parse_metadata,
-    remote_bound_message_id, sha256_hex, write_blob_if_absent,
+    MessageIngestRequest, RemoteBindingInput, Storage, StoredMessage, Utc, VivariumError,
+    blob_relpath, fallback_message_id, params, parse_metadata, remote_bound_message_id, sha256_hex,
+    write_blob_if_absent,
 };
 use rusqlite::Transaction;
 
@@ -43,130 +42,6 @@ impl Storage {
             blob_relpath,
             created_blob,
         })
-    }
-
-    /// Atomically ingest a single blob for multiple recipients and log a
-    /// delivery event for each, all within one `SQLite` transaction. If any
-    /// message row or event insert fails, the entire batch rolls back — no
-    /// partial recipient-visible state survives.
-    ///
-    /// The blob file is content-addressed: on rollback it may persist as an
-    /// orphan, but dedup by content hash means it is harmless and will be
-    /// reused on the next successful delivery of the same content.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database transaction, blob write,
-    /// metadata parsing, or event logging fails.
-    #[allow(clippy::too_many_arguments)]
-    pub fn deliver_raw_batch(
-        &mut self,
-        requests: &[MessageIngestRequest],
-        data: &[u8],
-        event_command: &str,
-        event_type: &str,
-        event_to_role: &str,
-        event_subject: &str,
-    ) -> Result<Vec<StoredMessage>, VivariumError> {
-        self.deliver_raw_batch_inner(
-            requests,
-            data,
-            event_command,
-            event_type,
-            event_to_role,
-            event_subject,
-            None,
-        )
-    }
-
-    /// Test-only variant that injects a failure after `fail_after` message
-    /// rows are processed within the transaction, proving that the batch
-    /// rolls back completely (no partial rows or events).
-    ///
-    /// # Errors
-    /// Returns an error if the database transaction fails or after the
-    /// injected failure point.
-    #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn deliver_raw_batch_fail_after(
-        &mut self,
-        requests: &[MessageIngestRequest],
-        data: &[u8],
-        event_command: &str,
-        event_type: &str,
-        event_to_role: &str,
-        event_subject: &str,
-        fail_after: usize,
-    ) -> Result<Vec<StoredMessage>, VivariumError> {
-        self.deliver_raw_batch_inner(
-            requests,
-            data,
-            event_command,
-            event_type,
-            event_to_role,
-            event_subject,
-            Some(fail_after),
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn deliver_raw_batch_inner(
-        &mut self,
-        requests: &[MessageIngestRequest],
-        data: &[u8],
-        event_command: &str,
-        event_type: &str,
-        event_to_role: &str,
-        event_subject: &str,
-        fail_after: Option<usize>,
-    ) -> Result<Vec<StoredMessage>, VivariumError> {
-        let content_id = sha256_hex(data);
-        let blob_relpath = blob_relpath(&content_id);
-        let blob_abspath = self.mail_root.join(&blob_relpath);
-        let created_blob = write_blob_if_absent(&blob_abspath, data)?;
-        let metadata = parse_metadata(data);
-        let now = Utc::now().to_rfc3339();
-        let tx = self.conn.transaction().map_err(|e| {
-            VivariumError::Other(format!("failed to open delivery transaction: {e}"))
-        })?;
-        upsert_blob_row(&tx, &content_id, &blob_relpath, data.len(), &metadata, &now)?;
-        upsert_metadata_row(&tx, &content_id, &metadata)?;
-        let mut stored = Vec::with_capacity(requests.len());
-        for (index, request) in requests.iter().enumerate() {
-            if fail_after.is_some_and(|n| index >= n) {
-                return Err(VivariumError::Other(
-                    "injected batch failure for testing".into(),
-                ));
-            }
-            let message_id = ingest_message_id(request, &content_id);
-            upsert_message_row(&tx, request, &message_id, &content_id, &now)?;
-            upsert_remote_binding(&tx, &message_id, request.remote.as_ref(), &now)?;
-            let event = MailspaceEventInput {
-                command: event_command.into(),
-                event_type: event_type.into(),
-                actor_identity: None,
-                account: request.account.clone(),
-                message_id: message_id.clone(),
-                content_id: content_id.clone(),
-                from_role: None,
-                to_role: Some(event_to_role.into()),
-                from_identity: None,
-                to_identity: Some(request.account.clone()),
-                subject: event_subject.into(),
-                note: None,
-            };
-            append_event_tx(&tx, &event, &now)?;
-            stored.push(StoredMessage {
-                message_id,
-                content_id: content_id.clone(),
-                blob_relpath: blob_relpath.clone(),
-                created_blob,
-            });
-        }
-        tx.commit().map_err(|e| {
-            VivariumError::Other(format!("failed to commit delivery transaction: {e}"))
-        })?;
-        self.invalidate_handle_cache();
-        Ok(stored)
     }
 }
 

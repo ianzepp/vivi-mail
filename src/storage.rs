@@ -14,17 +14,8 @@ use crate::catalog::{CatalogEntry, RemoteIdentity};
 use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
 
-mod backlog_graph;
-pub use backlog_graph::{
-    BACKLOG_GRAPH_CODE, BacklogMintCommit, BacklogMintInput, BacklogNodeInput,
-};
-mod events;
-mod goals;
-mod graph;
 mod handles;
 mod ingest;
-mod item_metadata;
-mod links;
 mod metadata;
 mod mutate;
 mod query;
@@ -32,21 +23,11 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
-pub use goals::{GoalRow, goal_handle_for_path};
-pub use graph::{
-    WorkGraphActivateInput, WorkGraphApplyPlan, WorkGraphAttemptRow, WorkGraphEdgeInput,
-    WorkGraphEdgeRow, WorkGraphEventRow, WorkGraphImportCommit, WorkGraphImportInput,
-    WorkGraphNodeInput, WorkGraphNodeRow, WorkGraphRow, edge_handle_for, graph_handle_for_code,
-    node_handle_for,
-};
-pub use links::MailspaceLink;
 use metadata::parse_metadata;
-pub use mutate::MailspaceMoveWithReply;
 use schema::{ensure_schema, message_query};
 
 const INTERNAL_DIR: &str = ".vivarium";
 const STORAGE_DB_FILENAME: &str = "storage.sqlite";
-const MAILSPACE_DB_FILENAME: &str = "mail.sqlite";
 const BLOBS_DIR: &str = "blobs";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,8 +83,6 @@ pub struct StoredMessageView {
     pub subject: String,
     pub normalized_message_id: Option<String>,
     pub remote: Option<RemoteBindingInput>,
-    pub absorbed_at: Option<String>,
-    pub absorbed_by: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,20 +140,6 @@ impl Storage {
         secure_create_dir_all(&internal_dir)
             .map_err(|e| VivariumError::Other(format!("failed to create storage dir: {e}")))?;
         Self::open_with_db(mail_root, &internal_dir.join(STORAGE_DB_FILENAME))
-    }
-
-    /// Open a mailspace-local storage database.
-    ///
-    /// Creates the mailspace directory and database file if they do not
-    /// exist.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the directory cannot be created, the
-    /// database cannot be opened, or the schema cannot be initialized.
-    pub fn open_mailspace(mailspace_dir: &Path) -> Result<Self, VivariumError> {
-        secure_create_dir_all(mailspace_dir)
-            .map_err(|e| VivariumError::Other(format!("failed to create mailspace dir: {e}")))?;
-        Self::open_with_db(mailspace_dir, &mailspace_dir.join(MAILSPACE_DB_FILENAME))
     }
 
     fn open_with_db(mail_root: &Path, db_path: &Path) -> Result<Self, VivariumError> {
@@ -262,8 +227,6 @@ fn raw_stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Stor
         subject: row.get(13)?,
         normalized_message_id: row.get(14)?,
         remote,
-        absorbed_at: row.get(20)?,
-        absorbed_by: row.get(21)?,
     })
 }
 

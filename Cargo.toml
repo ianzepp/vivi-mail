@@ -4,7 +4,10 @@ version = "9.4.0"
 edition = "2024"
 description = "Email transport, sync, and local archive for Vivi"
 license = "MIT"
-autobins = false
+
+[[bin]]
+name = "vivi-mail"
+path = "src/main.rs"
 
 [features]
 outbox = []

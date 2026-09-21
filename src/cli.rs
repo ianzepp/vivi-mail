@@ -1,12 +1,12 @@
 //! Mail-side CLI surface.
 //!
-//! Argument structs and subcommand enums for the email half of the CLI. The
-//! root binary owns the unified `Command` enum and holds these types in its
-//! mail variants, so the parsed shape stays one flat command list.
+//! Argument structs and subcommand enums for the email half of the CLI.
+//! `MailCli` is the root parser for this crate's own `vivi-mail` binary and
+//! lives here so integration tests can parse the same surface.
 
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Args, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand};
 
 mod agent_command;
 mod draft_command;
@@ -21,6 +21,33 @@ pub use index_command::IndexCommand;
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
+
+/// Root parser for the `vivi-mail` binary.
+#[derive(Debug, Parser)]
+#[command(
+    name = "vivi-mail",
+    version,
+    about = "Local-first IMAP email sync for LLMs"
+)]
+pub struct MailCli {
+    /// Path to config file
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
+    /// Account name to operate on
+    #[arg(long, global = true)]
+    pub account: Option<String>,
+    /// Enable verbose logging
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+    /// Accept invalid TLS certificates for this run
+    #[arg(long, global = true)]
+    pub insecure: bool,
+    /// Allow accounts.toml to be group/world readable
+    #[arg(long, global = true)]
+    pub ignore_permissions: bool,
+    #[command(subcommand)]
+    pub command: MailCommand,
+}
 
 /// Authorize an OAuth account and store its refresh token.
 #[cfg(feature = "outbox")]

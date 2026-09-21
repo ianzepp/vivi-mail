@@ -35,6 +35,10 @@ project, kept as intent rather than as a description of the shipped tool.
 
 ## Install
 
+Current release: **10.0.0**
+([GitHub releases](https://github.com/ianzepp/vivi-mail/releases),
+[notes](docs/release-v10.0.0.md)).
+
 Release binaries are published as assets on this repository's GitHub releases,
 which is the only distribution channel — there is no package-manager formula.
 Each archive contains the `vivi-mail` binary:

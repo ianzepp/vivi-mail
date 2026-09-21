@@ -17,7 +17,7 @@ mod secure;
 mod tests;
 
 pub use path::message_id_from_path;
-use path::{canonical_folder, display_message_id, is_message_file, maildir_filename, stable_hash};
+use path::{canonical_folder, display_message_id, is_message_file, maildir_filename};
 pub(crate) use secure::secure_create_dir_all;
 use secure::{secure_create_file, secure_file};
 
@@ -264,19 +264,6 @@ impl MailStore {
         Ok(map)
     }
 
-    /// Check if an RFC 5322 Message-ID exists in the index with a matching size.
-    #[must_use]
-    pub fn rfc_index_lookup(
-        &self,
-        index: &HashMap<String, (u32, u64)>,
-        rfc_message_id: &str,
-        size: u64,
-    ) -> bool {
-        index
-            .get(rfc_message_id)
-            .is_some_and(|(_, indexed_size)| *indexed_size == size)
-    }
-
     /// Check if an RFC 5322 Message-ID exists in the index.
     #[must_use]
     pub fn rfc_index_contains(
@@ -285,28 +272,6 @@ impl MailStore {
         rfc_message_id: &str,
     ) -> bool {
         index.contains_key(rfc_message_id)
-    }
-
-    /// Write an RFC message ID index entry to disk.
-    ///
-    /// # Errors
-    /// Returns an error if creating the index directory or writing the file
-    /// fails.
-    pub fn write_message_index(
-        &self,
-        folder: &str,
-        rfc_message_id: &str,
-        uid: u32,
-        size: u64,
-    ) -> Result<(), VivariumError> {
-        let path = self.index_path(folder, rfc_message_id);
-        if let Some(parent) = path.parent() {
-            secure_create_dir_all(parent)?;
-        }
-        let mut file = secure_create_file(&path)?;
-        file.write_all(format!("{uid}\n{size}\n").as_bytes())?;
-        file.sync_all()?;
-        Ok(())
     }
 
     fn ensure_folder(&self, folder: &str) -> Result<(), VivariumError> {
@@ -344,13 +309,6 @@ impl MailStore {
             }
         }
         Ok(None)
-    }
-
-    fn index_path(&self, folder: &str, rfc_message_id: &str) -> PathBuf {
-        self.root
-            .join(".vivarium_index")
-            .join(canonical_folder(folder).unwrap_or(folder))
-            .join(format!("{:016x}", stable_hash(rfc_message_id)))
     }
 
     fn outbox_message_paths(&self) -> Result<Vec<PathBuf>, VivariumError> {

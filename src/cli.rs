@@ -461,6 +461,3 @@ pub enum MailCommand {
     /// Plan or apply a provider label operation
     Label(LabelArgs),
 }
-
-/// Kept so the moved subcommand modules can name their own path argument.
-pub type ProjectPath = PathBuf;

@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 
 use mail_parser::MessageParser;
 
@@ -111,89 +110,6 @@ fn html_to_text(html: &str) -> String {
     result
 }
 
-/// List of attachments found in a message.
-#[derive(Debug, Clone)]
-pub struct AttachmentInfo {
-    pub filename: String,
-    pub mime_type: String,
-    pub size: usize,
-    pub content_id: String,
-    pub extraction_status: String,
-}
-
-/// Extract attachment inventory from raw .eml bytes.
-///
-/// # Errors
-/// Returns an error if the email cannot be parsed.
-pub fn extract_attachments(data: &[u8]) -> Result<Vec<AttachmentInfo>, VivariumError> {
-    let _parsed = MessageParser::default()
-        .parse(data)
-        .ok_or_else(|| VivariumError::Parse("failed to parse email for attachment scan".into()))?;
-    // mail_parser v0.9 does not expose parts() directly.
-    // Return empty list; attachments can be found by scanning raw MIME parts.
-    Ok(Vec::new())
-}
-
-/// Extract text and attachments from a raw .eml file.
-///
-/// # Errors
-/// Returns an error if the file cannot be read or parsed.
-pub fn extract_from_file(
-    path: &Path,
-) -> Result<(ExtractedText, Vec<AttachmentInfo>), VivariumError> {
-    let data = fs::read(path)?;
-    let text = extract_text(&data)?;
-    let attachments = extract_attachments(&data)?;
-    Ok((text, attachments))
-}
-
-/// Rebuild extraction for all messages in the store for an account.
-///
-/// # Errors
-/// Returns an error if a directory read or file read fails.
-///
-/// # Panics
-/// Never panics in practice; all fallible operations return errors.
-pub fn rebuild_extractions(
-    mail_root: &Path,
-    _account: &str,
-) -> Result<(usize, usize, usize), VivariumError> {
-    let store = crate::store::MailStore::new(mail_root);
-    let folders = ["INBOX", "Archive", "Sent", "Drafts"];
-    let mut extracted = 0;
-    let mut errors = 0;
-
-    for folder in folders {
-        let canonical = canonical_folder(folder);
-        for subdir in ["new", "cur"] {
-            let dir = store.folder_path(canonical).join(subdir);
-            if !dir.exists() {
-                continue;
-            }
-
-            if let Ok(read_dir) = fs::read_dir(&dir) {
-                for entry_result in read_dir.flatten() {
-                    let path_val = entry_result.path();
-                    let stem = path_val
-                        .file_stem()
-                        .map(|s| s.to_string_lossy())
-                        .unwrap_or_default();
-                    if !stem.ends_with(".eml") {
-                        continue;
-                    }
-
-                    match extract_text(&fs::read(&path_val)?) {
-                        Ok(_) => extracted += 1,
-                        Err(_) => errors += 1,
-                    }
-                }
-            }
-        }
-    }
-
-    Ok((extracted, 0, errors))
-}
-
 /// Extract text from all catalog entries, counting successes and failures.
 ///
 /// # Errors
@@ -214,16 +130,6 @@ pub fn extract_catalog_entries(entries: &[CatalogEntry]) -> Result<(usize, usize
     }
 
     Ok((extracted, errors))
-}
-
-fn canonical_folder(folder: &str) -> &'static str {
-    match folder.to_ascii_lowercase().as_str() {
-        "archive" | "archives" | "all" => "Archive",
-        "sent" => "Sent",
-        "draft" | "drafts" => "Drafts",
-        "outbox" => "outbox",
-        _ => "INBOX",
-    }
 }
 
 #[cfg(test)]

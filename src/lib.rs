@@ -56,9 +56,6 @@ pub mod sync_events_command;
 pub mod thread;
 pub mod watch_inbox;
 
-#[cfg(feature = "outbox")]
-pub mod outbox;
-
 // Names the moved command modules reach through `super::`.
 pub use error::VivariumError;
 pub use runtime::Runtime;

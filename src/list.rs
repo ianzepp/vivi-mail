@@ -35,10 +35,6 @@ fn matches_text_filter(entry: &MessageEntry, text_filter: Option<&str>) -> bool 
         || entry.subject.to_ascii_lowercase().contains(&filter)
 }
 
-pub fn print_entries(folder: &str, entries: &[MessageEntry]) {
-    let _ = write_entries(&mut io::stdout().lock(), folder, entries);
-}
-
 /// Writes formatted message entries to the given writer.
 ///
 /// # Errors

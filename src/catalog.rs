@@ -132,18 +132,6 @@ impl Catalog {
         .collect()
     }
 
-    /// Remove all entries for an account from the catalog.
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails.
-    pub fn remove_account(&mut self, account: &str) -> Result<(), VivariumError> {
-        self.conn
-            .execute("DELETE FROM messages WHERE account = ?1", params![account])
-            .map_err(|e| VivariumError::Other(format!("failed to remove catalog account: {e}")))?;
-        Self::flush();
-        Ok(())
-    }
-
     /// Count entries for an account.
     ///
     /// # Errors

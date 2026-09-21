@@ -276,7 +276,6 @@ fn protonmail_defaults_resolved_host_when_empty() {
     assert_eq!(account.resolved_imap_host(), "127.0.0.1");
     assert_eq!(account.resolved_imap_port(), 1143);
     assert_eq!(account.resolved_smtp_port(), 1025);
-    assert!(account.defaults_to_accept_invalid_certs());
 }
 
 #[test]

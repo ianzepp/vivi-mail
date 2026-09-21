@@ -6,38 +6,6 @@ use super::{
 };
 
 impl Storage {
-    /// Read the raw bytes of a stored blob by content hash.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the blob row is missing or the file
-    /// read fails.
-    pub fn read_blob(&self, content_id: &str) -> Result<Vec<u8>, VivariumError> {
-        let relpath: String = self
-            .conn
-            .query_row(
-                "SELECT blob_relpath FROM blobs WHERE content_id = ?1",
-                params![content_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| VivariumError::Other(format!("failed to read blob row: {e}")))?;
-        fs::read(self.mail_root.join(relpath)).map_err(Into::into)
-    }
-
-    /// Check whether a blob exists by content hash.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query fails.
-    pub fn blob_exists(&self, content_id: &str) -> Result<bool, VivariumError> {
-        self.conn
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM blobs WHERE content_id = ?1)",
-                params![content_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .map(|exists| exists != 0)
-            .map_err(|e| VivariumError::Other(format!("failed to check blob row: {e}")))
-    }
-
     /// Read the raw message bytes, resolving handles/prefixes first.
     ///
     /// # Errors
@@ -77,38 +45,6 @@ impl Storage {
         Ok(message)
     }
 
-    /// Look up a message by content hash, account, and local role.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query or handle
-    /// resolution fails.
-    pub fn message_by_content_account_role(
-        &self,
-        content_id: &str,
-        account: &str,
-        local_role: &str,
-    ) -> Result<Option<StoredMessageView>, VivariumError> {
-        let mut message = self
-            .conn
-            .query_row(
-                &message_query(
-                    "WHERE m.content_id = ?1
-                       AND m.account = ?2
-                       AND m.local_role = ?3
-                       AND m.deleted_at IS NULL
-                     ORDER BY m.message_id LIMIT 1",
-                ),
-                params![content_id, account, local_role],
-                raw_stored_message_from_row,
-            )
-            .optional()
-            .map_err(|e| VivariumError::Other(format!("failed to read stored message: {e}")))?;
-        if let Some(message) = &mut message {
-            message.handle = self.display_handle(&message.message_id)?;
-        }
-        Ok(message)
-    }
-
     /// List all messages in a given local role across all accounts.
     ///
     /// # Errors
@@ -122,99 +58,6 @@ impl Storage {
             "WHERE m.local_role = ?1 AND m.deleted_at IS NULL",
             params![local_role],
         )
-    }
-
-    /// List messages filtered by account and a single role.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query or handle
-    /// decoration fails.
-    pub fn list_messages_by_account_role(
-        &self,
-        account: &str,
-        local_role: &str,
-    ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        self.list_messages_by_query(
-            "WHERE m.account = ?1 AND m.local_role = ?2 AND m.deleted_at IS NULL",
-            params![account, local_role],
-        )
-    }
-
-    /// List messages filtered by one or more accounts and one or more roles.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query or handle
-    /// decoration fails.
-    pub fn list_messages_by_account_roles(
-        &self,
-        accounts: &[String],
-        roles: &[String],
-    ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        self.decorate_handles(self.list_messages_by_account_roles_raw(accounts, roles)?)
-    }
-
-    /// List messages filtered by accounts and roles, with handles scoped to those accounts.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query or handle
-    /// decoration fails.
-    pub fn list_messages_by_account_roles_scoped(
-        &self,
-        accounts: &[String],
-        roles: &[String],
-    ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        self.decorate_handles_for_accounts(
-            self.list_messages_by_account_roles_raw(accounts, roles)?,
-            accounts,
-        )
-    }
-
-    /// List messages filtered by accounts and roles without computing display handles.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query fails.
-    pub fn list_messages_by_account_roles_raw(
-        &self,
-        accounts: &[String],
-        roles: &[String],
-    ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        if accounts.is_empty() || roles.is_empty() {
-            return Ok(Vec::new());
-        }
-        let account_placeholders: Vec<_> = accounts
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("?{}", i + 1))
-            .collect();
-        let role_offset = accounts.len();
-        let role_placeholders: Vec<_> = roles
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("?{}", role_offset + i + 1))
-            .collect();
-        let sql = format!(
-            "{} WHERE m.account IN ({}) AND m.local_role IN ({}) AND m.deleted_at IS NULL ORDER BY md.date DESC, m.message_id",
-            message_query(""),
-            account_placeholders.join(","),
-            role_placeholders.join(","),
-        );
-        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
-            VivariumError::Other(format!("failed to prepare account+role listing: {e}"))
-        })?;
-        let params: Vec<&dyn rusqlite::types::ToSql> = accounts
-            .iter()
-            .map(|a| a as &dyn rusqlite::types::ToSql)
-            .chain(roles.iter().map(|r| r as &dyn rusqlite::types::ToSql))
-            .collect();
-        let rows = stmt
-            .query_map(params.as_slice(), raw_stored_message_from_row)
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to list account+role messages: {e}"))
-            })?;
-        rows.map(|row| {
-            row.map_err(|e| VivariumError::Other(format!("failed to read message row: {e}")))
-        })
-        .collect()
     }
 
     fn list_messages_by_query(
@@ -250,51 +93,6 @@ impl Storage {
     /// decoration fails.
     pub fn list_messages(&self) -> Result<Vec<StoredMessageView>, VivariumError> {
         self.list_messages_by_query("WHERE m.deleted_at IS NULL", [])
-    }
-
-    /// Latest non-memo message whose `from_addr` matches any of `addresses`.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the query or handle decoration fails.
-    pub fn latest_message_from_addresses(
-        &self,
-        addresses: &[String],
-    ) -> Result<Option<StoredMessageView>, VivariumError> {
-        if addresses.is_empty() {
-            return Ok(None);
-        }
-        let numbered = (1..=addresses.len())
-            .map(|index| format!("?{index}"))
-            .collect::<Vec<_>>();
-        let like = (1..=addresses.len())
-            .map(|index| format!("md.from_addr LIKE '%<' || ?{index} || '>%'"))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        let params: Vec<&dyn rusqlite::types::ToSql> = addresses
-            .iter()
-            .map(|a| a as &dyn rusqlite::types::ToSql)
-            .collect();
-        for predicate in [format!("md.from_addr IN ({})", numbered.join(",")), like] {
-            let sql = format!(
-                "{} WHERE m.deleted_at IS NULL AND m.local_role != 'memos' AND ({predicate}) \
-                 ORDER BY md.date DESC, m.message_id LIMIT 1",
-                message_query(""),
-            );
-            let mut stmt = self.conn.prepare(&sql).map_err(|e| {
-                VivariumError::Other(format!("failed to prepare latest-from query: {e}"))
-            })?;
-            let found = stmt
-                .query_row(params.as_slice(), raw_stored_message_from_row)
-                .optional()
-                .map_err(|e| {
-                    VivariumError::Other(format!("failed to read latest-from message: {e}"))
-                })?;
-            if let Some(mut message) = found {
-                message.handle = self.display_handle(&message.message_id)?;
-                return Ok(Some(message));
-            }
-        }
-        Ok(None)
     }
 
     /// List catalog entries for an account.

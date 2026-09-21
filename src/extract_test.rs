@@ -29,19 +29,6 @@ fn handles_empty_body() {
 }
 
 #[test]
-fn extracts_attachments() {
-    // Note: mail_parser may or may not parse this depending on format
-    let eml = b"From: a@b\r\nTo: c@d\r\nSubject: test\r\n\r\nno attachment here";
-    let attachments = extract_attachments(eml).unwrap();
-    assert!(
-        attachments.is_empty()
-            || attachments
-                .iter()
-                .all(|a| a.size > 0 || !a.filename.is_empty())
-    );
-}
-
-#[test]
 fn extracts_catalog_entries() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("message.eml");

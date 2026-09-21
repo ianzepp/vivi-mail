@@ -35,14 +35,6 @@ pub fn parse_duration(value: &str) -> Result<Duration, VivariumError> {
     Ok(Duration::from_secs(seconds))
 }
 
-/// Parse a duration and return whole seconds.
-///
-/// # Errors
-/// Same as [`parse_duration`].
-pub fn parse_duration_secs(value: &str) -> Result<u64, VivariumError> {
-    Ok(parse_duration(value)?.as_secs())
-}
-
 fn split_duration(value: &str) -> Option<(&str, &str)> {
     let first_unit = value
         .char_indices()

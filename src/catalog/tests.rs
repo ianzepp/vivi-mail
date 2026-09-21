@@ -155,9 +155,13 @@ fn attach_remote_identity_matches_by_rfc_message_id() {
     let result = catalog
         .attach_remote_identities(&[candidate("acct", "INBOX", "inbox", 42, Some(9))])
         .unwrap();
-    let remote = catalog.remote_reference("acct", "abc123").unwrap();
 
     assert_eq!(result.matched, 1);
+    let RemoteReferenceStatus::Ready(remote) =
+        catalog.remote_reference_status("acct", "abc123", Some(9))
+    else {
+        panic!("expected a ready remote reference");
+    };
     assert_eq!(remote.account, "acct");
     assert_eq!(remote.provider, "protonmail");
     assert_eq!(remote.remote_mailbox, "INBOX");
@@ -189,7 +193,10 @@ fn attach_remote_identity_does_not_use_legacy_uid_filename() {
 
     assert_eq!(result.matched, 0);
     assert_eq!(result.missing_local, 1);
-    assert!(catalog.remote_reference("acct", "abc123").is_err());
+    assert!(matches!(
+        catalog.remote_reference_status("acct", "abc123", None),
+        RemoteReferenceStatus::MissingRemoteIdentity { .. }
+    ));
 }
 
 #[test]

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -113,17 +112,6 @@ fn rfc_index_builds_from_outbox_files() {
     assert_eq!(index.get("abc@example.com"), Some(&(7, data1.len() as u64)));
     assert_eq!(index.get("def@example.com"), Some(&(8, data2.len() as u64)));
     assert!(!index.contains_key("nonexistent@example.com"));
-}
-
-#[test]
-fn rfc_index_lookup_matches_correct_size() {
-    let tmp = tempfile::tempdir().unwrap();
-    let store = MailStore::new(tmp.path());
-    let index = HashMap::from([("abc@example.com".to_string(), (42, 99u64))]);
-
-    assert!(store.rfc_index_lookup(&index, "abc@example.com", 99));
-    assert!(!store.rfc_index_lookup(&index, "abc@example.com", 100));
-    assert!(!store.rfc_index_lookup(&index, "other@example.com", 99));
 }
 
 #[test]

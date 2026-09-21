@@ -56,9 +56,3 @@ pub(super) fn display_message_id(message_id: &str) -> String {
         .unwrap_or(before_flags)
         .to_string()
 }
-
-pub(super) fn stable_hash(value: &str) -> u64 {
-    value.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    })
-}

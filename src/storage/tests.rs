@@ -168,7 +168,14 @@ fn import_persists_blob_and_metadata() {
 
     import_catalog_entries(tmp.path(), &entries).unwrap();
     let storage = Storage::open(tmp.path()).unwrap();
-    let data = storage.read_blob(&resulting_content_id(raw)).unwrap();
+    let content_id = resulting_content_id(raw);
+    let blob = tmp
+        .path()
+        .join("blobs")
+        .join(&content_id[..2])
+        .join(&content_id[2..4])
+        .join(format!("{content_id}.eml"));
+    let data = std::fs::read(&blob).unwrap();
 
     assert_eq!(data, raw);
     assert_eq!(storage.blob_count().unwrap(), 1);
@@ -411,62 +418,6 @@ fn local_size_fallback_uses_remote_uid_shape_for_storage_rows() {
 }
 
 #[test]
-fn latest_from_prefers_exact_address_and_ignores_memos() {
-    let tmp = tempfile::tempdir().unwrap();
-    let mut storage = Storage::open(tmp.path()).unwrap();
-    ingest_dated(
-        &mut storage,
-        "mind",
-        "sent",
-        "mind@faberlang.local",
-        "Wed, 01 Jan 2020 00:00:00 +0000",
-        "old-mail",
-    );
-    ingest_dated(
-        &mut storage,
-        "mind",
-        "memos",
-        "mind@faberlang.local",
-        "Fri, 03 Jan 2020 00:00:00 +0000",
-        "newer-memo",
-    );
-    let newer = ingest_dated(
-        &mut storage,
-        "mind",
-        "sent",
-        "mind@faberlang.local",
-        "Thu, 02 Jan 2020 00:00:00 +0000",
-        "newer-mail",
-    );
-    let found = storage
-        .latest_message_from_addresses(&["mind@faberlang.local".into()])
-        .unwrap()
-        .expect("signal");
-    assert_eq!(found.message_id, newer);
-    assert_eq!(found.local_role, "sent");
-    assert!(!found.handle.is_empty());
-}
-
-#[test]
-fn latest_from_matches_display_name_form() {
-    let tmp = tempfile::tempdir().unwrap();
-    let mut storage = Storage::open(tmp.path()).unwrap();
-    let id = ingest_dated(
-        &mut storage,
-        "acct",
-        "sent",
-        "Agent <agent@example.com>",
-        "Thu, 02 Jan 2020 00:00:00 +0000",
-        "named",
-    );
-    let found = storage
-        .latest_message_from_addresses(&["agent@example.com".into()])
-        .unwrap()
-        .expect("display-name from");
-    assert_eq!(found.message_id, id);
-}
-
-#[test]
 fn schema_v6_adds_from_addr_date_index_on_upgrade() {
     let tmp = tempfile::tempdir().unwrap();
     let storage = Storage::open(tmp.path()).unwrap();
@@ -502,36 +453,6 @@ fn schema_v6_adds_from_addr_date_index_on_upgrade() {
         )
         .unwrap();
     assert_eq!(version, "8");
-}
-
-fn ingest_dated(
-    storage: &mut Storage,
-    account: &str,
-    role: &str,
-    from: &str,
-    date: &str,
-    seed: &str,
-) -> String {
-    let raw = format!(
-        "Message-ID: <{seed}@example.com>\r\nFrom: {from}\r\nTo: x@example.com\r\n\
-         Date: {date}\r\nSubject: s\r\n\r\nbody"
-    )
-    .into_bytes();
-    storage
-        .ingest_message(
-            &MessageIngestRequest {
-                account: account.into(),
-                local_role: role.into(),
-                read_state: false,
-                starred: false,
-                message_id_hint: None,
-                seed_hint: seed.into(),
-                remote: None,
-            },
-            &raw,
-        )
-        .unwrap()
-        .message_id
 }
 
 fn message_bytes(message_id: &str, body: &str) -> Vec<u8> {

@@ -90,27 +90,6 @@ impl Catalog {
         RemoteReferenceStatus::Ready(remote)
     }
 
-    /// Resolve a remote identity reference for a catalog entry.
-    ///
-    /// # Errors
-    /// Returns an error if the message or its remote identity is not found.
-    pub fn remote_reference(
-        &self,
-        account: &str,
-        handle: &str,
-    ) -> Result<RemoteIdentity, VivariumError> {
-        match self.remote_reference_status(account, handle, None) {
-            RemoteReferenceStatus::Ready(remote) => Ok(remote),
-            RemoteReferenceStatus::MissingHandle { .. } => Err(VivariumError::Message(format!(
-                "message not found in catalog for account '{account}': {handle}"
-            ))),
-            RemoteReferenceStatus::MissingRemoteIdentity { .. } => Err(VivariumError::Message(
-                format!("message has no remote identity yet: {handle}"),
-            )),
-            RemoteReferenceStatus::StaleUidValidity { .. } => unreachable!(),
-        }
-    }
-
     /// Attach remote identity information to catalog entries based on candidates.
     ///
     /// # Errors

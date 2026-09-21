@@ -271,10 +271,4 @@ impl Account {
             _ => Security::Ssl,
         })
     }
-
-    /// Whether this account should accept self-signed certificates by default.
-    #[must_use]
-    pub fn defaults_to_accept_invalid_certs(&self) -> bool {
-        matches!(self.provider, crate::config::types::Provider::Protonmail)
-    }
 }

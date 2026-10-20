@@ -98,6 +98,36 @@ pub fn resolved_folders(account: &Account) -> ResolvedFolders {
     }
 }
 
+/// Virtual or aggregate IMAP views that must never be used as a sync source
+/// or as a mutation source. Expunging All Mail deletes the real message.
+#[must_use]
+pub fn is_virtual_mailbox(name: &str) -> bool {
+    matches!(
+        normalize_mailbox_name(name).as_str(),
+        "all mail"
+            | "[gmail]/all mail"
+            | "[gmail]/important"
+            | "[gmail]/starred"
+            | "spam"
+            | "junk"
+            | "[gmail]/spam"
+    )
+}
+
+/// Folders that `sync --all` must not copy into the local archive.
+#[must_use]
+pub fn is_unsafe_sync_mailbox(name: &str) -> bool {
+    is_virtual_mailbox(name)
+        || matches!(
+            normalize_mailbox_name(name).as_str(),
+            "trash" | "deleted" | "deleted messages" | "[gmail]/trash"
+        )
+}
+
+fn normalize_mailbox_name(name: &str) -> String {
+    name.trim().trim_matches('"').to_ascii_lowercase()
+}
+
 fn capability_report(caps: &async_imap::types::Capabilities) -> CapabilityReport {
     let mut raw = caps.iter().map(capability_name).collect::<Vec<_>>();
     raw.sort();

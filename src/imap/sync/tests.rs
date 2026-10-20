@@ -1,3 +1,4 @@
+use super::download::{FetchMode, peek_fetch_items};
 use super::*;
 use crate::config::{Auth, MutationPolicy};
 use crate::imap::identity::remote_identity_candidates;
@@ -120,6 +121,96 @@ fn find_missing_does_not_scan_legacy_maildir_without_message_id() {
 
     let missing = find_missing(&[remote], &store, "inbox", DedupeScope::LocalFolder).unwrap();
     assert_eq!(missing.len(), 1);
+}
+
+#[test]
+fn find_missing_refetches_when_uidvalidity_changes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let body = b"Subject: original\r\n\r\nbody";
+    storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "test".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:7".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "test".into(),
+                    provider: "standard".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 7,
+                    remote_uidvalidity: 1,
+                }),
+            },
+            body,
+        )
+        .unwrap();
+    let store = MailStore::new(tmp.path());
+
+    let reused_uid = RemoteMessage {
+        uid: 7,
+        uidvalidity: Some(99),
+        size: body.len() as u64,
+        rfc_message_id: None,
+        read_state: false,
+        starred: false,
+    };
+
+    let missing = find_missing(&[reused_uid], &store, "inbox", DedupeScope::LocalFolder).unwrap();
+    assert_eq!(
+        missing.len(),
+        1,
+        "UID reuse after UIDVALIDITY change must re-fetch"
+    );
+}
+
+#[test]
+fn find_missing_refetches_truncated_blob() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let body = b"Subject: full\r\n\r\ncomplete-body";
+    let stored = storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "test".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:7".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "test".into(),
+                    provider: "standard".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 7,
+                    remote_uidvalidity: 123,
+                }),
+            },
+            body,
+        )
+        .unwrap();
+    let blob = tmp.path().join(&stored.blob_relpath);
+    std::fs::write(&blob, &body[..8]).unwrap();
+    let store = MailStore::new(tmp.path());
+
+    let remote = RemoteMessage {
+        uid: 7,
+        uidvalidity: Some(123),
+        size: body.len() as u64,
+        rfc_message_id: None,
+        read_state: false,
+        starred: false,
+    };
+
+    let missing = find_missing(&[remote], &store, "inbox", DedupeScope::LocalFolder).unwrap();
+    assert_eq!(
+        missing.len(),
+        1,
+        "truncated blob must be treated as missing"
+    );
 }
 
 #[test]
@@ -250,24 +341,64 @@ fn protonmail_syncs_all_mail_without_all_flag() {
 }
 
 #[test]
-fn protonmail_syncs_all_mail_into_archive() {
+fn protonmail_sync_all_uses_real_archive_not_all_mail() {
     let account = account_with_provider(Provider::Protonmail);
     let folders = sync_folders(&account, true);
 
     assert!(
         folders
             .iter()
-            .any(|folder| folder.remote_folder == "All Mail" && folder.local_folder == "archive")
+            .any(|folder| folder.remote_folder == "Archive" && folder.local_folder == "archive")
+    );
+    assert!(
+        !folders
+            .iter()
+            .any(|folder| folder.remote_folder == "All Mail")
     );
 }
 
 #[test]
-fn standard_provider_no_all_mail_even_with_flag() {
-    let account = account_with_provider(Provider::Standard);
+fn gmail_sync_all_never_includes_all_mail() {
+    let account = account_with_provider(Provider::Gmail);
+    let folders = sync_folders(&account, true);
+
+    assert!(!folders.iter().any(|folder| {
+        folder.remote_folder.contains("All Mail")
+            || crate::imap::is_virtual_mailbox(&folder.remote_folder)
+    }));
+}
+
+#[test]
+fn sync_all_skips_virtual_archive_override() {
+    let mut account = account_with_provider(Provider::Gmail);
+    account.archive_folder = Some("[Gmail]/All Mail".into());
     let folders = sync_folders(&account, true);
 
     assert_eq!(folders.len(), 2);
-    assert!(!folders.iter().any(|f| f.local_folder == "archive"));
+    assert!(
+        !folders
+            .iter()
+            .any(|folder| folder.local_folder == "archive")
+    );
+}
+
+#[test]
+fn standard_provider_sync_all_includes_archive_folder() {
+    let account = account_with_provider(Provider::Standard);
+    let folders = sync_folders(&account, true);
+
+    assert!(
+        folders
+            .iter()
+            .any(|folder| folder.remote_folder == "Archive" && folder.local_folder == "archive")
+    );
+}
+
+#[test]
+fn full_and_header_fetches_use_peek() {
+    assert_eq!(peek_fetch_items(FetchMode::Headers), "BODY.PEEK[HEADER]");
+    assert_eq!(peek_fetch_items(FetchMode::Full), "BODY.PEEK[]");
+    assert_ne!(peek_fetch_items(FetchMode::Full), "BODY[]");
 }
 
 #[test]

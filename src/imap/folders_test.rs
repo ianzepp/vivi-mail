@@ -2,6 +2,24 @@ use super::*;
 use crate::config::{Auth, Provider, Security};
 
 #[test]
+fn virtual_mailbox_detection() {
+    assert!(is_virtual_mailbox("All Mail"));
+    assert!(is_virtual_mailbox("[Gmail]/All Mail"));
+    assert!(is_virtual_mailbox("[Gmail]/Spam"));
+    assert!(!is_virtual_mailbox("Archive"));
+    assert!(!is_virtual_mailbox("INBOX"));
+    assert!(is_unsafe_sync_mailbox("Trash"));
+    assert!(is_unsafe_sync_mailbox("[Gmail]/Trash"));
+    assert!(!is_unsafe_sync_mailbox("Archive"));
+    assert!(is_virtual_mailbox(
+        account(Provider::Gmail).all_mail_folder()
+    ));
+    assert!(is_virtual_mailbox(
+        account(Provider::Protonmail).all_mail_folder()
+    ));
+}
+
+#[test]
 fn resolves_provider_folder_defaults() {
     let proton = account(Provider::Protonmail);
     let gmail = account(Provider::Gmail);

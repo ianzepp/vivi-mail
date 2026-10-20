@@ -82,6 +82,12 @@ pub fn prepare_mutation(
             entry.handle
         ))
     })?;
+    if crate::imap::is_virtual_mailbox(&remote.remote_mailbox) {
+        return Err(VivariumError::Message(format!(
+            "refusing to mutate virtual mailbox '{}'; re-sync from a real folder first",
+            remote.remote_mailbox
+        )));
+    }
     let plan = mutation_plan(account, &action, capabilities)?;
     let target = target_folders(account, &action)?;
     let preview = MutationPreview {

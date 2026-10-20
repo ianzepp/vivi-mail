@@ -10,6 +10,10 @@ pub enum AgentDispatch {
 }
 
 pub trait AgentRunner {
+    /// Dispatch an agent subcommand for this runtime.
+    ///
+    /// # Errors
+    /// Returns an error if the agent command cannot be executed.
     fn run_agent_command(&self, command: MailCommand) -> Result<AgentDispatch, VivariumError>;
 }
 

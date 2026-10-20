@@ -1,3 +1,5 @@
+#![allow(clippy::default_trait_access)]
+
 use super::*;
 use chrono::TimeZone;
 

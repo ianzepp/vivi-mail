@@ -36,7 +36,7 @@ impl Runtime {
         as_json: bool,
     ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.selected_account_name(account))?;
-        let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
+        let reject_invalid_certs = acct.reject_invalid_certs_for_run(&self.config, self.insecure);
         let mut checks = Vec::new();
 
         let mail_root = acct.mail_path(&self.config);

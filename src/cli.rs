@@ -39,7 +39,7 @@ pub struct MailCli {
     /// Enable verbose logging
     #[arg(short, long, global = true)]
     pub verbose: bool,
-    /// Accept invalid TLS certificates for this run
+    /// Accept invalid TLS certificates for loopback/Bridge accounts on this run
     #[arg(long, global = true)]
     pub insecure: bool,
     /// Allow accounts.toml to be group/world readable
@@ -75,6 +75,7 @@ pub struct TokenArgs {
 
 /// Sync mail from IMAP to local store.
 #[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SyncArgs {
     /// Account to sync (overrides --account)
     #[arg(long)]
@@ -112,7 +113,7 @@ pub struct SyncArgs {
     #[arg(long)]
     pub json: bool,
 
-    /// Sync all IMAP folders (Inbox, Sent, All Mail)
+    /// Sync Inbox, Sent, and the provider's real Archive folder (never All Mail/Trash)
     #[arg(long)]
     pub all: bool,
 }
@@ -186,6 +187,7 @@ pub struct WatchInboxArgs {
 
 /// List messages in a folder (inbox, archive, trash, sent, drafts).
 #[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ListArgs {
     /// Folder name
     #[arg(default_value = "inbox")]
@@ -268,6 +270,7 @@ pub struct ExportArgs {
 
 /// Search messages by keyword.
 #[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SearchArgs {
     /// Search query (space-separated keywords)
     pub query: String,

@@ -10,12 +10,13 @@ pub struct Config {
     pub judgment: Judgment,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Defaults {
     /// Base directory for all account mail, e.g. "~/Mail"
     pub mail_root: Option<String>,
     pub check_interval_secs: Option<u64>,
-    #[serde(default)]
+    /// When true (the default), TLS certificate validation is enforced.
+    #[serde(default = "default_true")]
     pub reject_invalid_certs: bool,
     /// Optional embedding provider name for semantic indexing/search.
     pub embedding_provider: Option<String>,
@@ -61,6 +62,20 @@ pub struct RenderDefaults {
 
 fn default_true() -> bool {
     true
+}
+
+impl Default for Defaults {
+    fn default() -> Self {
+        Self {
+            mail_root: None,
+            check_interval_secs: None,
+            reject_invalid_certs: true,
+            embedding_provider: None,
+            embedding_model: None,
+            embedding_endpoint: None,
+            render: RenderDefaults::default(),
+        }
+    }
 }
 
 impl Default for RenderDefaults {

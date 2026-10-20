@@ -18,7 +18,7 @@ fn config_defaults_when_missing() {
     let path = tmp.path().join("nonexistent.toml");
     let config = Config::load(&path).unwrap();
     assert!(config.defaults.mail_root.is_none());
-    assert!(!config.defaults.reject_invalid_certs);
+    assert!(config.defaults.reject_invalid_certs);
 }
 
 #[test]
@@ -340,13 +340,13 @@ fn protonmail_default_reject_invalid_certs_is_true() {
 }
 
 #[test]
-fn standard_provider_uses_config_default_for_certs() {
+fn remote_accounts_validate_certs_even_when_defaults_opt_out() {
     let config = Config {
         defaults: types::Defaults {
-            reject_invalid_certs: true,
+            reject_invalid_certs: false,
             ..types::Defaults::default()
         },
-        judgment: Default::default(),
+        judgment: types::Judgment::default(),
     };
     let mut account = account_with_provider(types::Provider::Standard);
     account.name = "custom".into();
@@ -354,6 +354,66 @@ fn standard_provider_uses_config_default_for_certs() {
     account.imap_host = "imap.e.com".into();
     account.smtp_host = "smtp.e.com".into();
     assert!(account.reject_invalid_certs(&config));
+    assert!(account.reject_invalid_certs_for_run(&config, true));
+}
+
+#[test]
+fn loopback_account_may_opt_out_of_cert_validation() {
+    let config = Config::default();
+    let mut account = account_with_provider(types::Provider::Protonmail);
+    account.reject_invalid_certs = Some(false);
+    assert!(!account.reject_invalid_certs(&config));
+    assert!(!account.reject_invalid_certs_for_run(&config, true));
+}
+
+#[test]
+fn insecure_flag_does_not_disable_validation_for_remote_hosts() {
+    let config = Config::default();
+    let mut account = account_with_provider(types::Provider::Gmail);
+    account.imap_host = "imap.gmail.com".into();
+    account.smtp_host = "smtp.gmail.com".into();
+    assert!(account.reject_invalid_certs(&config));
+    assert!(account.reject_invalid_certs_for_run(&config, true));
+}
+
+#[test]
+fn insecure_flag_is_scoped_to_loopback_accounts() {
+    let config = Config::default();
+    let account = account_with_provider(types::Provider::Protonmail);
+    assert!(account.reject_invalid_certs(&config));
+    assert!(!account.reject_invalid_certs_for_run(&config, true));
+}
+
+#[tokio::test]
+async fn password_cmd_failure_omits_command_output() {
+    let mut account = account_with_provider(types::Provider::Standard);
+    account.password = None;
+    account.password_cmd =
+        Some("printf 'SECRET-PASSWORD' >&2; echo 'SECRET-PASSWORD'; exit 1".into());
+    let err = account.resolve_secret().await.unwrap_err();
+    let text = err.to_string();
+    assert!(!text.contains("SECRET-PASSWORD"));
+    assert!(text.contains("password_cmd failed"));
+}
+
+#[tokio::test]
+async fn token_cmd_failure_omits_command_output() {
+    let mut account = account_with_provider(types::Provider::Gmail);
+    account.auth = types::Auth::Xoauth2;
+    account.token_cmd = Some("printf 'SECRET-TOKEN' >&2; echo 'SECRET-TOKEN'; exit 1".into());
+    let err = account.resolve_secret().await.unwrap_err();
+    let text = err.to_string();
+    assert!(!text.contains("SECRET-TOKEN"));
+    assert!(text.contains("token_cmd failed"));
+}
+
+#[test]
+fn loopback_host_detection() {
+    assert!(super::account::is_loopback_host("127.0.0.1"));
+    assert!(super::account::is_loopback_host("localhost"));
+    assert!(super::account::is_loopback_host("[::1]"));
+    assert!(!super::account::is_loopback_host("imap.gmail.com"));
+    assert!(!super::account::is_loopback_host(""));
 }
 
 #[test]

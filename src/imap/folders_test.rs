@@ -2,6 +2,13 @@ use super::*;
 use crate::config::{Auth, Provider, Security};
 
 #[test]
+fn mailbox_names_eq_ignores_case_and_quotes() {
+    assert!(mailbox_names_eq("INBOX", "inbox"));
+    assert!(mailbox_names_eq(" \"Sent\" ", "sent"));
+    assert!(!mailbox_names_eq("INBOX", "Sent"));
+}
+
+#[test]
 fn virtual_mailbox_detection() {
     assert!(is_virtual_mailbox("All Mail"));
     assert!(is_virtual_mailbox("[Gmail]/All Mail"));
@@ -69,6 +76,7 @@ fn account(provider: Provider) -> Account {
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: None,
         storage_mode: None,
         provider,

@@ -126,6 +126,7 @@ fn test_runtime(tmp: &std::path::Path, policy: crate::config::MutationPolicy) ->
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: None,
         storage_mode: None,
         provider: crate::config::Provider::Standard,

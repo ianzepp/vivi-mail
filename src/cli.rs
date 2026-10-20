@@ -76,22 +76,44 @@ pub struct TokenArgs {
 /// Sync mail from IMAP to local store.
 #[derive(Debug, Args)]
 #[allow(clippy::struct_excessive_bools)]
+#[command(after_help = "Folder selection:\n  \
+Default (no --folder/--all, no sync_folders): Inbox and Sent.\n  \
+--all: Inbox, Sent, and the provider's real Archive folder. Never All Mail/Trash/Spam.\n  \
+--folder/--folders: only the named folders. Mutually exclusive with --all.\n  \
+CLI --folder overrides account sync_folders; --all also overrides it.\n  \
+Logical names: inbox, sent, archive, drafts, trash. Real IMAP names for those roles also work.\n  \
+Virtual views (All Mail, Spam, Important, Starred) are always refused, even if named.\n  \
+Trash and Drafts are included only when explicitly named.\n\n\
+Limits and dates (per folder):\n  \
+--limit N caps new downloads in each selected folder independently.\n  \
+  `sync --folder inbox --folder sent --limit 10` can fetch 10 from Inbox and 10 from Sent.\n  \
+--since/--before filter each selected folder via IMAP SEARCH, not a shared remaining budget.")]
 pub struct SyncArgs {
     /// Account to sync (overrides --account)
     #[arg(long)]
     pub account: Option<String>,
 
-    /// Maximum number of new messages to download in this run
+    /// Maximum new messages to download in each selected folder
     #[arg(long)]
     pub limit: Option<usize>,
 
-    /// Sync messages on or after this date (YYYY-MM-DD, or relative like 30d, 3mo, 1y)
+    /// Sync messages on or after this date in each selected folder (YYYY-MM-DD, or relative like 30d, 3mo, 1y)
     #[arg(long)]
     pub since: Option<String>,
 
-    /// Sync messages before this date (YYYY-MM-DD)
+    /// Sync messages before this date in each selected folder (YYYY-MM-DD)
     #[arg(long)]
     pub before: Option<String>,
+
+    /// Folders to sync (logical names like inbox/sent/archive, or real IMAP names)
+    #[arg(
+        long = "folder",
+        visible_alias = "folders",
+        value_name = "NAME",
+        value_delimiter = ',',
+        conflicts_with = "all"
+    )]
+    pub folders: Vec<String>,
 
     /// Delete the local account cache before syncing
     #[arg(long)]
@@ -113,7 +135,7 @@ pub struct SyncArgs {
     #[arg(long)]
     pub json: bool,
 
-    /// Sync Inbox, Sent, and the provider's real Archive folder (never All Mail/Trash)
+    /// Sync Inbox, Sent, and the provider's real Archive folder (never All Mail/Trash/Spam)
     #[arg(long)]
     pub all: bool,
 }

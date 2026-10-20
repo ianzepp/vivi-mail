@@ -122,6 +122,11 @@ pub struct Account {
     pub trash_folder: Option<String>,
     pub sent_folder: Option<String>,
     pub drafts_folder: Option<String>,
+    /// Default folders for `vivi-mail sync` when `--folder`/`--all` are omitted.
+    /// Logical names (`inbox`, `sent`, `archive`, `drafts`, `trash`) or the
+    /// account's real IMAP names. When unset, sync uses Inbox and Sent.
+    #[serde(default)]
+    pub sync_folders: Option<Vec<String>>,
     pub label_roots: Option<Vec<String>>,
     pub storage_mode: Option<StorageMode>,
     /// Provider hint: "gmail", "proton-api", "protonmail", or "standard"

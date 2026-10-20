@@ -99,6 +99,50 @@ fn parses_sync_json() {
 }
 
 #[test]
+fn parses_sync_repeatable_folder_flags() {
+    let cli =
+        MailCli::try_parse_from(["vivi-mail", "sync", "--folder", "inbox", "--folder", "sent"])
+            .unwrap();
+
+    match cli.command {
+        MailCommand::Sync(SyncArgs { folders, all, .. }) => {
+            assert_eq!(folders, ["inbox", "sent"]);
+            assert!(!all);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_sync_comma_separated_folders_alias() {
+    let cli = MailCli::try_parse_from(["vivi-mail", "sync", "--folders", "inbox,sent"]).unwrap();
+
+    match cli.command {
+        MailCommand::Sync(SyncArgs { folders, .. }) => {
+            assert_eq!(folders, ["inbox", "sent"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_sync_folder_comma_list() {
+    let cli = MailCli::try_parse_from(["vivi-mail", "sync", "--folder", "inbox,archive"]).unwrap();
+
+    match cli.command {
+        MailCommand::Sync(SyncArgs { folders, .. }) => {
+            assert_eq!(folders, ["inbox", "archive"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_sync_all_combined_with_folder() {
+    assert!(MailCli::try_parse_from(["vivi-mail", "sync", "--all", "--folder", "inbox"]).is_err());
+}
+
+#[test]
 fn parses_watch_inbox_event_contract() {
     let cli = MailCli::try_parse_from(["vivi-mail", "watch-inbox", "--account", "agent", "--json"])
         .unwrap();

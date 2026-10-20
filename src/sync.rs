@@ -51,19 +51,20 @@ impl SyncWindow {
     }
 }
 
-/// Sync all folders for an account (IMAP or Proton API).
+/// Sync selected folders for an account (IMAP or Proton API).
 ///
 /// # Errors
 /// Returns an error if the store cannot be initialized, IMAP/API sync fails,
-/// or extraction fails.
+/// extraction fails, or an IMAP folder selector is used on a Proton API account.
 pub async fn sync_account(
     account: &Account,
     config: &Config,
     insecure: bool,
     limit: Option<usize>,
     window: SyncWindow,
-    all: bool,
+    selection: &crate::imap::SyncSelection,
 ) -> Result<SyncResult, VivariumError> {
+    ensure_selection_supported(account, selection)?;
     let store = MailStore::new(&account.mail_path(config));
     store.ensure_folders()?;
     let reject_invalid_certs = account.reject_invalid_certs_for_run(config, insecure);
@@ -72,11 +73,31 @@ pub async fn sync_account(
     } else if matches!(account.provider, Provider::ProtonApi) {
         crate::proton_sync::sync_messages(account, &store, limit, window).await?
     } else {
-        crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window, all)
-            .await?
+        crate::imap::sync_messages(
+            account,
+            &store,
+            reject_invalid_certs,
+            limit,
+            window,
+            selection,
+        )
+        .await?
     };
     finish_sync(account, &mut result)?;
     Ok(result)
+}
+
+fn ensure_selection_supported(
+    account: &Account,
+    selection: &crate::imap::SyncSelection,
+) -> Result<(), VivariumError> {
+    if matches!(account.provider, Provider::ProtonApi) && selection.is_named() {
+        return Err(VivariumError::Config(format!(
+            "account '{}' uses provider = \"proton-api\"; --folder/--folders and sync_folders apply to IMAP accounts only",
+            account.name
+        )));
+    }
+    Ok(())
 }
 
 /// Sync only the account's inbound IMAP folder. This seam has no sent-folder,

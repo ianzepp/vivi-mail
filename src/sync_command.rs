@@ -12,6 +12,7 @@ pub(crate) struct SyncOptions {
     pub(crate) limit: Option<usize>,
     pub(crate) since: Option<String>,
     pub(crate) before: Option<String>,
+    pub(crate) folders: Vec<String>,
     pub(crate) reset: bool,
     pub(crate) confirm_reset: bool,
     pub(crate) index: bool,
@@ -27,6 +28,7 @@ impl SyncOptions {
             limit,
             since,
             before,
+            folders,
             reset,
             confirm_reset,
             index,
@@ -42,6 +44,7 @@ impl SyncOptions {
             limit,
             since,
             before,
+            folders,
             reset,
             confirm_reset,
             index,
@@ -101,6 +104,7 @@ impl Runtime {
             options.limit,
             options.since.as_deref(),
             options.before.as_deref(),
+            &options.folders,
         )?;
         let window =
             crate::sync::SyncWindow::parse(options.since.as_deref(), options.before.as_deref())?;
@@ -131,13 +135,18 @@ impl Runtime {
         if options.reset {
             crate::sync::reset_account_cache(acct, &self.config, options.confirm_reset)?;
         }
+        let selection = crate::imap::SyncSelection::from_inputs(
+            options.all,
+            &options.folders,
+            acct.sync_folders.as_deref(),
+        )?;
         let result = crate::sync::sync_account(
             acct,
             &self.config,
             self.insecure,
             options.limit,
             window,
-            options.all,
+            &selection,
         )
         .await?;
         if !options.json {
@@ -276,13 +285,15 @@ fn validate_reset(
     limit: Option<usize>,
     since: Option<&str>,
     before: Option<&str>,
+    folders: &[String],
 ) -> Result<(), VivariumError> {
     if !reset {
         return Ok(());
     }
-    if limit.is_some() || since.is_some() || before.is_some() {
+    if limit.is_some() || since.is_some() || before.is_some() || !folders.is_empty() {
         return Err(VivariumError::Config(
-            "--reset cannot be combined with --limit, --since, or --before".into(),
+            "--reset cannot be combined with --limit, --since, --before, or --folder/--folders"
+                .into(),
         ));
     }
     Ok(())

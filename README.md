@@ -35,9 +35,9 @@ project, kept as intent rather than as a description of the shipped tool.
 
 ## Install
 
-Current release: **11.0.0**
+Current release: **11.1.0**
 ([GitHub releases](https://github.com/ianzepp/vivi-mail/releases),
-[notes](docs/release-v11.0.0.md)).
+[notes](docs/release-v11.1.0.md)).
 
 Release binaries are published as assets on this repository's GitHub releases,
 which is the only distribution channel — there is no package-manager formula.
@@ -48,7 +48,7 @@ Each archive contains the `vivi-mail` binary:
 - `vivi-mail-x86_64-unknown-linux-gnu.tar.gz`
 
 ```sh
-VIVI_VERSION=v11.0.0
+VIVI_VERSION=v11.1.0
 curl -fsSL "https://github.com/ianzepp/vivi-mail/releases/download/${VIVI_VERSION}/vivi-mail-$(uname -m | sed 's/arm64/aarch64/')-apple-darwin.tar.gz" |
   tar xz -C ~/.local/bin
 ```

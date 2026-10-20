@@ -1,6 +1,4 @@
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use hex;
@@ -79,8 +77,7 @@ impl Catalog {
             .map_err(|e| {
                 VivariumError::Other(format!("failed to enable catalog foreign keys: {e}"))
             })?;
-        #[cfg(unix)]
-        fs::set_permissions(&catalog_path, fs::Permissions::from_mode(0o600))?;
+        crate::store::secure_sqlite_path(&catalog_path)?;
 
         Ok(Self {
             mail_root: mail_root.to_path_buf(),

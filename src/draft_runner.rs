@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::VivariumError;
@@ -5,6 +6,7 @@ use crate::cli::{ComposeCommand, MailCommand, ReplyCommand};
 use crate::config::Provider;
 use crate::message::{self, ComposeDraft, ReplyDraft};
 use crate::policy::{self, RemoteMutation};
+use crate::store::secure_create_file;
 use crate::store::{MailStore, message_id_from_path};
 
 use super::Runtime;
@@ -59,7 +61,8 @@ impl Runtime {
         if send_transport(&acct.provider) == SendTransport::DirectProtonApi {
             crate::proton_send::send_raw(&acct, &self.config, &data).await?;
         } else {
-            let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
+            let reject_invalid_certs =
+                acct.reject_invalid_certs_for_run(&self.config, self.insecure);
             crate::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
         }
         let sent = reconcile_sent(&store, path, &data)?;
@@ -100,7 +103,9 @@ impl Runtime {
             None,
         )?;
         let initial = message::build_compose_draft_with_attachments(&draft, &attachments)?;
-        let Some(data) = edit_if_needed("compose", initial, draft.body.is_empty())? else {
+        let editor_dir = editor_dir(&acct.mail_path(&self.config));
+        let Some(data) = edit_if_needed("compose", initial, draft.body.is_empty(), &editor_dir)?
+        else {
             println!("compose cancelled");
             return Ok(());
         };
@@ -131,7 +136,8 @@ impl Runtime {
                 body,
             },
         )?;
-        let Some(data) = edit_if_needed("reply", initial, should_edit)? else {
+        let editor_dir = editor_dir(&acct.mail_path(&self.config));
+        let Some(data) = edit_if_needed("reply", initial, should_edit, &editor_dir)? else {
             println!("reply cancelled");
             return Ok(());
         };
@@ -183,7 +189,8 @@ async fn store_draft(
     let path = store.store_message("drafts", &draft_id, data)?;
     if append_remote {
         policy::authorize_mutation(&acct, RemoteMutation::AppendDraft)?;
-        let reject_invalid_certs = acct.reject_invalid_certs(&runtime.config) && !runtime.insecure;
+        let reject_invalid_certs =
+            acct.reject_invalid_certs_for_run(&runtime.config, runtime.insecure);
         crate::imap::append_message(&acct, &acct.drafts_folder(), data, reject_invalid_certs)
             .await?;
     }
@@ -239,11 +246,12 @@ fn edit_if_needed(
     prefix: &str,
     initial: String,
     should_edit: bool,
+    private_dir: &Path,
 ) -> Result<Option<String>, VivariumError> {
     if !should_edit {
         return Ok(Some(initial));
     }
-    let Some(edited) = edit_message(prefix, initial.as_bytes())? else {
+    let Some(edited) = edit_message(prefix, initial.as_bytes(), private_dir)? else {
         return Ok(None);
     };
     String::from_utf8(edited)
@@ -251,9 +259,12 @@ fn edit_if_needed(
         .map_err(|e| VivariumError::Message(format!("edited draft is not UTF-8: {e}")))
 }
 
-fn edit_message(prefix: &str, initial: &[u8]) -> Result<Option<Vec<u8>>, VivariumError> {
-    let path = editor_temp_path(prefix);
-    std::fs::write(&path, initial)?;
+fn edit_message(
+    prefix: &str,
+    initial: &[u8],
+    private_dir: &Path,
+) -> Result<Option<Vec<u8>>, VivariumError> {
+    let path = create_editor_draft(private_dir, prefix, initial)?;
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_string());
@@ -272,13 +283,30 @@ fn edit_message(prefix: &str, initial: &[u8]) -> Result<Option<Vec<u8>>, Vivariu
     Ok(Some(edited))
 }
 
-fn editor_temp_path(prefix: &str) -> PathBuf {
+fn editor_dir(mail_root: &Path) -> PathBuf {
+    mail_root.join(".vivarium").join("tmp")
+}
+
+fn create_editor_draft(
+    private_dir: &Path,
+    prefix: &str,
+    initial: &[u8],
+) -> Result<PathBuf, VivariumError> {
+    crate::store::secure_create_dir_all(private_dir)?;
+    let path = editor_temp_path(private_dir, prefix);
+    let mut file = secure_create_file(&path)?;
+    file.write_all(initial)?;
+    file.sync_all()?;
+    Ok(path)
+}
+
+fn editor_temp_path(private_dir: &Path, prefix: &str) -> PathBuf {
     let unique = format!(
         "vivarium-{prefix}-{}-{}.eml",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     );
-    std::env::temp_dir().join(Path::new(&unique))
+    private_dir.join(unique)
 }
 
 pub(crate) fn require_eml_path(path: &Path) -> Result<(), VivariumError> {

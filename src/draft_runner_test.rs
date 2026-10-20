@@ -64,6 +64,25 @@ fn sent_reconciliation_failure_preserves_source() {
     assert!(draft.exists(), "source must survive sent-copy failure");
 }
 
+#[cfg(unix)]
+#[test]
+fn editor_draft_is_owner_only_in_private_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join(".vivarium").join("tmp");
+    let path = create_editor_draft(&dir, "compose", b"From: a@example.com\n").unwrap();
+
+    assert!(
+        path.starts_with(&dir),
+        "editor draft must live under the account-private tmp dir"
+    );
+    assert_eq!(path.parent().unwrap(), dir.as_path());
+    let file_mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+    assert_eq!(file_mode, 0o600);
+    assert_eq!(dir_mode, 0o700);
+}
+
 #[test]
 fn require_eml_path_rejects_non_eml() {
     let err = require_eml_path(Path::new("message.txt")).unwrap_err();

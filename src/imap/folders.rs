@@ -124,6 +124,12 @@ pub fn is_unsafe_sync_mailbox(name: &str) -> bool {
         )
 }
 
+/// Compare IMAP or logical mailbox names, ignoring case, quotes, and padding.
+#[must_use]
+pub fn mailbox_names_eq(left: &str, right: &str) -> bool {
+    normalize_mailbox_name(left) == normalize_mailbox_name(right)
+}
+
 fn normalize_mailbox_name(name: &str) -> String {
     name.trim().trim_matches('"').to_ascii_lowercase()
 }

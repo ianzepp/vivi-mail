@@ -109,6 +109,7 @@ fn test_account(storage_mode: StorageMode) -> crate::config::Account {
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: None,
         storage_mode: Some(storage_mode),
         provider: crate::config::Provider::ProtonApi,

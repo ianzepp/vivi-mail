@@ -104,8 +104,10 @@ all accounts.
 
 ```
 vivi-mail init                                 # create the config directory and files
-vivi-mail sync                                 # sync all accounts
-vivi-mail sync --account proton --since 3mo    # bound the window
+vivi-mail sync                                 # sync all accounts (Inbox + Sent)
+vivi-mail sync --account proton --folder inbox # one folder
+vivi-mail sync --account proton --folders inbox,sent --limit 50
+vivi-mail sync --account proton --since 3mo    # bound the window per folder
 vivi-mail sync --account proton --json         # machine-readable summary
 vivi-mail sync --account proton --reset        # drop the local cache, full resync
 vivi-mail sync-events --account agent-proton --watch --json
@@ -158,6 +160,7 @@ auth = "password"
 password = "your-bridge-app-password"
 provider = "protonmail"
 storage_mode = "headers"   # proxy | headers | bodies | semantic
+# sync_folders = ["inbox"]  # optional; default is Inbox and Sent
 ```
 
 Direct Proton API, for containers with no Bridge:
@@ -222,13 +225,34 @@ Provider differences are handled at the account boundary:
 | Gmail | `"gmail"` | Gmail IMAP labels | SMTP |
 | Standard | `"standard"` | IMAP folders | SMTP |
 
-`sync --all` copies Inbox, Sent, and the provider's real Archive folder. It
-never syncs virtual or aggregate views (`All Mail`, Gmail Important/Starred,
-Trash, Spam). User-facing archive operations target the provider's real
-`Archive` folder; mutations whose remote identity points at a virtual mailbox
-are refused. Standard IMAP accounts sync `INBOX` and `Sent` (and Archive with
-`--all`). Direct Proton API accounts map Proton labels and message state into
-the same local roles without IMAP.
+IMAP `sync` chooses folders as follows:
+
+- Default (no `--folder`/`--all`, no `sync_folders`): Inbox and Sent.
+- `--all`: Inbox, Sent, and the provider's real Archive folder. Mutually
+  exclusive with `--folder`/`--folders`.
+- `--folder <name>` (repeatable) or `--folders a,b`: only the named folders.
+  Logical names are `inbox`, `sent`, `archive`, `drafts`, and `trash`; the
+  account's real IMAP names for those roles also work (`INBOX`,
+  `[Gmail]/Sent Mail`, …).
+- If those CLI flags are omitted, account `sync_folders` in `accounts.toml` is
+  used when set.
+
+`--folder`/`--folders` override `sync_folders`. `--all` also overrides
+`sync_folders`. Virtual views (`All Mail`, Gmail Important/Starred, Spam) are
+always refused, even if named. Trash and Drafts are included only when
+explicitly named. `--all` still skips Trash/Spam/All Mail.
+
+`--limit N` caps **new downloads in each selected folder independently**.
+`sync --folder inbox --folder sent --limit 10` can fetch 10 from Inbox and 10
+from Sent; Inbox cannot consume the cap and leave Sent empty. `--since` and
+`--before` also apply per folder, via IMAP `SEARCH SINCE`/`BEFORE` on that
+mailbox. `--limit 0` still skips downloads for the whole account (a
+maintenance pass). Direct Proton API accounts are label-based: they ignore
+`--all` and reject `--folder`/`sync_folders` so a selector cannot silently
+no-op.
+
+User-facing archive operations target the provider's real `Archive` folder;
+mutations whose remote identity points at a virtual mailbox are refused.
 
 ## Account Mutation Policy
 

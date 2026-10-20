@@ -52,6 +52,7 @@ fn account(provider: Provider) -> Account {
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: Some(vec!["Labels".into()]),
         storage_mode: None,
         provider,

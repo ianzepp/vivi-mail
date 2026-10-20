@@ -95,6 +95,48 @@ fn accounts_file_not_found() {
 }
 
 #[test]
+fn accounts_file_parses_sync_folders() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "proton"
+        email = "you@proton.me"
+        imap_host = "127.0.0.1"
+        smtp_host = "127.0.0.1"
+        username = "you@proton.me"
+        password = "secret"
+        provider = "protonmail"
+        sync_folders = ["inbox"]
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("proton").unwrap();
+    assert_eq!(
+        account.sync_folders.as_deref(),
+        Some(["inbox".to_string()].as_slice())
+    );
+}
+
+#[test]
+fn accounts_file_omits_sync_folders_by_default() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "test"
+        email = "test@example.com"
+        imap_host = "imap.example.com"
+        smtp_host = "smtp.example.com"
+        username = "test"
+        password = "secret"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    assert!(accounts.accounts[0].sync_folders.is_none());
+}
+
+#[test]
 fn accounts_file_parses() {
     let path = accounts_file(
         r#"
@@ -495,6 +537,7 @@ fn account_with_provider(provider: types::Provider) -> types::Account {
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: None,
         storage_mode: None,
         provider,

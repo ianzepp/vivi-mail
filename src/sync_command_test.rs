@@ -50,6 +50,24 @@ fn sync_json_includes_post_processing_reports() {
     assert_eq!(json["embeddings"]["embedded"], 2);
 }
 
+#[test]
+fn reset_rejects_limit_since_before_and_folders() {
+    let err = validate_reset(true, Some(10), None, None, &[]).unwrap_err();
+    assert!(err.to_string().contains("--reset cannot be combined"));
+
+    let err = validate_reset(true, None, Some("7d"), None, &[]).unwrap_err();
+    assert!(err.to_string().contains("--reset cannot be combined"));
+
+    let err = validate_reset(true, None, None, None, &["inbox".into()]).unwrap_err();
+    assert!(err.to_string().contains("--folder"));
+}
+
+#[test]
+fn reset_alone_is_allowed() {
+    validate_reset(true, None, None, None, &[]).unwrap();
+    validate_reset(false, Some(10), Some("7d"), None, &["inbox".into()]).unwrap();
+}
+
 fn test_report(account: &str) -> SyncReport {
     SyncReport {
         account: account.into(),

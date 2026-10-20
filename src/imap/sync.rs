@@ -1,4 +1,5 @@
 use self::download::download_missing;
+use self::plan::{inbox_plan, plans_for};
 use super::query::fetch_remote_messages;
 use super::transport::RemoteMessage;
 use crate::catalog::CatalogEntry;
@@ -9,7 +10,11 @@ use crate::store::MailStore;
 use crate::sync::{SyncResult, SyncWindow};
 
 mod download;
+mod plan;
 
+pub use plan::SyncSelection;
+
+#[derive(Debug)]
 struct FolderPlan {
     remote_folder: String,
     local_folder: &'static str,
@@ -25,7 +30,7 @@ struct SyncFolderRequest<'a> {
     window: SyncWindow,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum DedupeScope {
     LocalFolder,
     AllFolders,
@@ -55,19 +60,19 @@ pub async fn sync_inbox_messages(
     .await
 }
 
-/// Sync inbound and sent mail using the historical full-sync behavior.
+/// Sync the folders chosen by `selection` into the local store.
 ///
 /// # Errors
 /// Returns an error if the IMAP connection, folder listing, or message
-/// download fails, or if the account uses an unsupported provider or
-/// storage mode.
+/// download fails, the selection cannot be resolved, or the account uses an
+/// unsupported provider or storage mode.
 pub async fn sync_messages(
     account: &Account,
     store: &MailStore,
     reject_invalid_certs: bool,
     limit: Option<usize>,
     window: SyncWindow,
-    all: bool,
+    selection: &SyncSelection,
 ) -> Result<SyncResult, VivariumError> {
     sync_plans(
         account,
@@ -75,7 +80,7 @@ pub async fn sync_messages(
         reject_invalid_certs,
         limit,
         window,
-        sync_folders(account, all),
+        plans_for(account, selection)?,
     )
     .await
 }
@@ -103,61 +108,23 @@ async fn sync_plans(
     }
 
     let mut result = SyncResult::default();
-    let mut remaining = limit;
-
     for plan in plans {
+        // `--limit` and `--since`/`--before` apply independently per folder.
+        // Inbox cannot consume the cap and starve Sent.
         let r = sync_folder(SyncFolderRequest {
             account,
             store,
             plan,
             reject_invalid_certs,
-            limit: remaining,
+            limit,
             window,
         })
         .await?;
         result.new += r.new;
         result.cataloged_entries.extend(r.cataloged_entries);
-        if let Some(value) = remaining.as_mut() {
-            *value = value.saturating_sub(r.new);
-            if *value == 0 {
-                break;
-            }
-        }
     }
 
     Ok(result)
-}
-
-fn inbox_plan(account: &Account) -> FolderPlan {
-    FolderPlan {
-        remote_folder: account.inbox_folder(),
-        local_folder: "inbox",
-        dedupe_scope: DedupeScope::LocalFolder,
-    }
-}
-
-fn sync_folders(account: &Account, all: bool) -> Vec<FolderPlan> {
-    let mut folders = vec![
-        inbox_plan(account),
-        FolderPlan {
-            remote_folder: account.sent_folder(),
-            local_folder: "sent",
-            dedupe_scope: DedupeScope::LocalFolder,
-        },
-    ];
-
-    if all {
-        let archive = account.archive_folder();
-        if !crate::imap::is_unsafe_sync_mailbox(&archive) {
-            folders.push(FolderPlan {
-                remote_folder: archive,
-                local_folder: "archive",
-                dedupe_scope: DedupeScope::AllFolders,
-            });
-        }
-    }
-
-    folders
 }
 
 /// Compare remote messages against local files and return missing ones.

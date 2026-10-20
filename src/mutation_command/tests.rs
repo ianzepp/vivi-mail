@@ -220,6 +220,7 @@ fn account() -> Account {
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: None,
         storage_mode: None,
         provider: Provider::Protonmail,

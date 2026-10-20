@@ -33,6 +33,23 @@ fn sync_window_rejects_invalid_dates() {
 }
 
 #[test]
+fn proton_api_rejects_named_folder_selection() {
+    let mut account = account_with_mail_dir(std::path::PathBuf::from("/tmp"));
+    account.provider = crate::config::Provider::ProtonApi;
+    let selection = crate::imap::SyncSelection::Named(vec!["inbox".into()]);
+    let err = ensure_selection_supported(&account, &selection).unwrap_err();
+    assert!(err.to_string().contains("proton-api"));
+}
+
+#[test]
+fn proton_api_allows_default_and_all_selection() {
+    let mut account = account_with_mail_dir(std::path::PathBuf::from("/tmp"));
+    account.provider = crate::config::Provider::ProtonApi;
+    ensure_selection_supported(&account, &crate::imap::SyncSelection::Default).unwrap();
+    ensure_selection_supported(&account, &crate::imap::SyncSelection::All).unwrap();
+}
+
+#[test]
 fn sync_window_matches_datetimes() {
     let window = SyncWindow::parse(Some("2026-02-01"), Some("2026-03-01")).unwrap();
     let inside = Utc.with_ymd_and_hms(2026, 2, 12, 12, 0, 0).unwrap();
@@ -476,6 +493,7 @@ fn account_with_mail_dir(mail_dir: std::path::PathBuf) -> Account {
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: None,
         storage_mode: None,
         provider: crate::config::Provider::Standard,

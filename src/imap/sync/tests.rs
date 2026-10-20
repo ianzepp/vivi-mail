@@ -35,6 +35,7 @@ fn test_account() -> Account {
         trash_folder: None,
         sent_folder: Some("Sent".into()),
         drafts_folder: Some("Drafts".into()),
+        sync_folders: None,
         label_roots: None,
         storage_mode: None,
         provider: Provider::default(),
@@ -332,7 +333,7 @@ fn refresh_remote_flags_updates_existing_storage_rows() {
 #[test]
 fn protonmail_syncs_all_mail_without_all_flag() {
     let account = account_with_provider(Provider::Protonmail);
-    let folders = sync_folders(&account, false);
+    let folders = planned(&account, &SyncSelection::Default);
 
     assert_eq!(folders.len(), 2);
     assert!(folders.iter().any(|f| f.local_folder == "inbox"));
@@ -343,7 +344,7 @@ fn protonmail_syncs_all_mail_without_all_flag() {
 #[test]
 fn protonmail_sync_all_uses_real_archive_not_all_mail() {
     let account = account_with_provider(Provider::Protonmail);
-    let folders = sync_folders(&account, true);
+    let folders = planned(&account, &SyncSelection::All);
 
     assert!(
         folders
@@ -360,7 +361,7 @@ fn protonmail_sync_all_uses_real_archive_not_all_mail() {
 #[test]
 fn gmail_sync_all_never_includes_all_mail() {
     let account = account_with_provider(Provider::Gmail);
-    let folders = sync_folders(&account, true);
+    let folders = planned(&account, &SyncSelection::All);
 
     assert!(!folders.iter().any(|folder| {
         folder.remote_folder.contains("All Mail")
@@ -372,7 +373,7 @@ fn gmail_sync_all_never_includes_all_mail() {
 fn sync_all_skips_virtual_archive_override() {
     let mut account = account_with_provider(Provider::Gmail);
     account.archive_folder = Some("[Gmail]/All Mail".into());
-    let folders = sync_folders(&account, true);
+    let folders = planned(&account, &SyncSelection::All);
 
     assert_eq!(folders.len(), 2);
     assert!(
@@ -385,13 +386,143 @@ fn sync_all_skips_virtual_archive_override() {
 #[test]
 fn standard_provider_sync_all_includes_archive_folder() {
     let account = account_with_provider(Provider::Standard);
-    let folders = sync_folders(&account, true);
+    let folders = planned(&account, &SyncSelection::All);
 
     assert!(
         folders
             .iter()
             .any(|folder| folder.remote_folder == "Archive" && folder.local_folder == "archive")
     );
+}
+
+#[test]
+fn named_inbox_excludes_sent() {
+    let account = account_with_provider(Provider::Protonmail);
+    let folders = planned(&account, &named(["inbox"]));
+
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0].local_folder, "inbox");
+    assert_eq!(folders[0].remote_folder, "INBOX");
+}
+
+#[test]
+fn named_sent_accepts_logical_and_imap_names() {
+    let account = account_with_provider(Provider::Gmail);
+    let logical = planned(&account, &named(["sent"]));
+    let imap = planned(&account, &named(["[Gmail]/Sent Mail"]));
+
+    assert_eq!(logical.len(), 1);
+    assert_eq!(logical[0].remote_folder, "[Gmail]/Sent Mail");
+    assert_eq!(imap[0].remote_folder, "[Gmail]/Sent Mail");
+}
+
+#[test]
+fn named_trash_is_allowed_when_explicit() {
+    let account = account_with_provider(Provider::Protonmail);
+    let folders = planned(&account, &named(["trash"]));
+
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0].local_folder, "trash");
+    assert_eq!(folders[0].remote_folder, "Trash");
+}
+
+#[test]
+fn named_virtual_mailbox_is_refused() {
+    let account = account_with_provider(Provider::Protonmail);
+    let err = plans_for(&account, &named(["All Mail"])).unwrap_err();
+    assert!(err.to_string().contains("virtual mailbox"));
+}
+
+#[test]
+fn named_archive_refuses_all_mail_override() {
+    let mut account = account_with_provider(Provider::Gmail);
+    account.archive_folder = Some("[Gmail]/All Mail".into());
+    let err = plans_for(&account, &named(["archive"])).unwrap_err();
+    assert!(err.to_string().contains("virtual mailbox"));
+}
+
+#[test]
+fn named_duplicates_collapse() {
+    let account = account_with_provider(Provider::Standard);
+    let folders = planned(&account, &named(["inbox", "INBOX", "inbox"]));
+    assert_eq!(folders.len(), 1);
+}
+
+#[test]
+fn named_unknown_folder_is_rejected() {
+    let account = account_with_provider(Provider::Standard);
+    let err = plans_for(&account, &named(["Lists"])).unwrap_err();
+    assert!(err.to_string().contains("unsupported sync folder"));
+}
+
+#[test]
+fn account_sync_folders_select_inbox_only() {
+    let mut account = account_with_provider(Provider::Protonmail);
+    account.sync_folders = Some(vec!["inbox".into()]);
+    let selection =
+        SyncSelection::from_inputs(false, &[], account.sync_folders.as_deref()).unwrap();
+    let folders = planned(&account, &selection);
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0].local_folder, "inbox");
+}
+
+#[test]
+fn selection_cli_folders_override_all_and_config() {
+    let err = SyncSelection::from_inputs(true, &["inbox".into()], Some(&["sent".into()]));
+    assert!(err.unwrap_err().to_string().contains("cannot be combined"));
+
+    let named =
+        SyncSelection::from_inputs(false, &["inbox".into()], Some(&["sent".into()])).unwrap();
+    assert_eq!(named, SyncSelection::Named(vec!["inbox".into()]));
+
+    let all = SyncSelection::from_inputs(true, &[], Some(&["inbox".into()])).unwrap();
+    assert_eq!(all, SyncSelection::All);
+}
+
+#[test]
+fn selection_uses_account_defaults_when_no_cli_selector() {
+    let selected =
+        SyncSelection::from_inputs(false, &[], Some(&["inbox".into(), " archive ".into()]))
+            .unwrap();
+    assert_eq!(
+        selected,
+        SyncSelection::Named(vec!["inbox".into(), "archive".into()])
+    );
+
+    let default = SyncSelection::from_inputs(false, &[], None).unwrap();
+    assert_eq!(default, SyncSelection::Default);
+}
+
+#[test]
+fn selection_rejects_empty_account_defaults() {
+    let err = SyncSelection::from_inputs(false, &[], Some(&[])).unwrap_err();
+    assert!(err.to_string().contains("sync_folders is empty"));
+}
+
+#[test]
+fn limit_applies_independently_to_each_folder() {
+    let remote = |uid| RemoteMessage {
+        uid,
+        uidvalidity: Some(1),
+        size: 10,
+        rfc_message_id: None,
+        read_state: false,
+        starred: false,
+    };
+    let mut inbox = vec![remote(1), remote(2), remote(3)];
+    let mut sent = vec![remote(4), remote(5), remote(6)];
+    truncate_missing(&mut inbox, Some(2));
+    truncate_missing(&mut sent, Some(2));
+    assert_eq!(inbox.len(), 2);
+    assert_eq!(sent.len(), 2);
+}
+
+fn named(names: impl IntoIterator<Item = &'static str>) -> SyncSelection {
+    SyncSelection::Named(names.into_iter().map(str::to_string).collect())
+}
+
+fn planned(account: &Account, selection: &SyncSelection) -> Vec<FolderPlan> {
+    plans_for(account, selection).unwrap()
 }
 
 #[test]
@@ -447,6 +578,7 @@ fn account_with_provider(provider: Provider) -> Account {
         trash_folder: None,
         sent_folder: None,
         drafts_folder: None,
+        sync_folders: None,
         label_roots: None,
         storage_mode: None,
         provider,

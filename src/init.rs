@@ -33,6 +33,9 @@ const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email acc
 # provider = "protonmail"
 # imap_security = "ssl"
 # smtp_security = "starttls"
+# Optional. When set, plain `vivi-mail sync` uses these instead of Inbox + Sent.
+# Logical names: inbox, sent, archive, drafts, trash.
+# sync_folders = ["inbox"]
 
 # Experimental direct Proton API account for isolated containers:
 # [[accounts]]

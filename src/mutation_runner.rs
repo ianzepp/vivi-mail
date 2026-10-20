@@ -113,7 +113,7 @@ impl Runtime {
         let acct = self.resolve_account(self.account.clone())?;
         validate_mutation_confirmation(&inputs, &action_for, options)?;
         let mail_root = acct.mail_path(&self.config);
-        let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
+        let reject_invalid_certs = acct.reject_invalid_certs_for_run(&self.config, self.insecure);
         let discovery = crate::imap::discover_folders(&acct, reject_invalid_certs).await?;
         let capabilities = MutationCapabilities::from(&discovery.capabilities);
         let mut outputs = Vec::new();

@@ -201,8 +201,9 @@ The mail root defaults to `~/.vivarium/`. Each account lives under
 
 Rules:
 
-- `blobs/` is the immutable content store and the raw-message source of truth.
-  A blob is never rewritten; mailbox state lives in the database beside it.
+- `blobs/` is the content-addressed raw-message store. Writes are atomic
+  (temp file, fsync, rename). A truncated or mismatched blob is rewritten on
+  the next ingest; mailbox state lives in the database beside the blobs.
 - `.vivarium/storage.sqlite` holds mutable state. Role, flags, and remote
   bindings can change without touching a blob.
 - `.vivarium/embeddings/` holds semantic indexes and is disposable.
@@ -221,11 +222,13 @@ Provider differences are handled at the account boundary:
 | Gmail | `"gmail"` | Gmail IMAP labels | SMTP |
 | Standard | `"standard"` | IMAP folders | SMTP |
 
-Bridge-backed Gmail and ProtonMail use their provider's `All Mail` view only as
-an internal sync source for the local `Archive/` corpus; user-facing archive
-operations target the provider's real `Archive` folder. Standard IMAP accounts
-sync `INBOX` and `Sent` directly. Direct Proton API accounts map Proton labels
-and message state into the same local roles without IMAP.
+`sync --all` copies Inbox, Sent, and the provider's real Archive folder. It
+never syncs virtual or aggregate views (`All Mail`, Gmail Important/Starred,
+Trash, Spam). User-facing archive operations target the provider's real
+`Archive` folder; mutations whose remote identity points at a virtual mailbox
+are refused. Standard IMAP accounts sync `INBOX` and `Sent` (and Archive with
+`--all`). Direct Proton API accounts map Proton labels and message state into
+the same local roles without IMAP.
 
 ## Account Mutation Policy
 
@@ -267,11 +270,23 @@ folder names all classify as a denied move-to-trash under `read-only` and
   auth = "xoauth2"
   token_cmd = "security find-generic-password -s gmail-access-token -w"
   ```
-- Certificate validation is on for `provider = "protonmail"` by default. Set
-  `reject_invalid_certs = false` on an account, or pass `--insecure` for a
-  single run, when a local Bridge uses an untrusted certificate.
+- Certificate validation is on by default for every account. Set
+  `reject_invalid_certs = false` on a **loopback** account (local Bridge on
+  localhost / 127.0.0.1), or pass `--insecure` for a single run of that
+  account, when the Bridge uses an untrusted certificate. `--insecure` and
+  `reject_invalid_certs = false` are ignored for remote mail hosts.
+- Compose/reply editor drafts are written mode `600` under the account's
+  `.vivarium/tmp/` directory, not the shared system temp dir.
+- SQLite WAL/SHM sidecar files are chmod'd owner-only when a database is
+  opened. Failed `password_cmd` / `token_cmd` errors omit command output.
 - Direct Proton API sessions are stored under the account's private state
   directory and refresh without reusing the account password on every command.
+- Queued send records the RFC 5322 Message-ID (or a content hash) with status
+  `sending` **before** talking to SMTP. A later run never resends a `sending`
+  or `executed` item with that key (at-most-once after intent is fsynced). If
+  the process dies after recording intent and before SMTP, drop the stuck item
+  and re-enqueue only after confirming the message never arrived. A failed SMTP
+  call does not block a new enqueue.
 - Direct Proton encrypted-payload caches are account-local private artifacts. Do
   not publish or package them in release artifacts.
 - `[judgment]` config is **not** here. It moved to the consuming project's

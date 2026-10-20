@@ -65,7 +65,7 @@ pub async fn watch_inbox(
     loop {
         let source = match crate::imap::wait_for_inbox_change(
             account,
-            account.reject_invalid_certs(config) && !insecure,
+            account.reject_invalid_certs_for_run(config, insecure),
             POLL_INTERVAL,
         )
         .await

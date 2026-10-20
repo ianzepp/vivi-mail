@@ -33,9 +33,9 @@ pub async fn wait_for_inbox_change(
     }
 
     session
-        .select("INBOX")
+        .examine("INBOX")
         .await
-        .map_err(|e| VivariumError::Imap(format!("idle select INBOX failed: {e}")))?;
+        .map_err(|e| VivariumError::Imap(format!("idle examine INBOX failed: {e}")))?;
 
     let mut handle = session.idle();
     handle

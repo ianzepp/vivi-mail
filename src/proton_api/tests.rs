@@ -309,6 +309,11 @@ async fn fetch_message_parses_header_and_armored_body() {
     let request = rx.await.unwrap();
     assert!(request.starts_with("GET /mail/v4/messages/proton-id HTTP/1.1"));
     assert!(request.contains("authorization: Bearer access-1"));
+    assert!(
+        !request.contains("PUT ") && !request.contains("POST "),
+        "message fetch must not mark mail read"
+    );
+    assert!(!request.to_ascii_lowercase().contains("/read"));
 }
 
 #[test]

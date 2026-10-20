@@ -66,7 +66,7 @@ pub async fn sync_account(
 ) -> Result<SyncResult, VivariumError> {
     let store = MailStore::new(&account.mail_path(config));
     store.ensure_folders()?;
-    let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
+    let reject_invalid_certs = account.reject_invalid_certs_for_run(config, insecure);
     let mut result = if limit == Some(0) {
         SyncResult::default()
     } else if matches!(account.provider, Provider::ProtonApi) {
@@ -99,7 +99,7 @@ pub async fn sync_inbox_account(
     }
     let store = MailStore::new(&account.mail_path(config));
     store.ensure_folders()?;
-    let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
+    let reject_invalid_certs = account.reject_invalid_certs_for_run(config, insecure);
     let mut result =
         crate::imap::sync_inbox_messages(account, &store, reject_invalid_certs, None, window)
             .await?;

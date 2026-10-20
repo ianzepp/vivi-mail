@@ -79,8 +79,9 @@ pub async fn connect(
             if account.provider == Provider::Protonmail {
                 return Err(VivariumError::Imap(format!(
                     "TLS error connecting to Proton Bridge at {host}:{port}. \
-                     If using a self-signed certificate, set reject_invalid_certs = true \
-                     in config.toml or add the cert to your keychain. Details: {e}"
+                     If using a self-signed certificate, set reject_invalid_certs = false \
+                     on this local Bridge account, pass --insecure for this run, \
+                     or add the cert to your keychain. Details: {e}"
                 )));
             }
             Err(e)

@@ -60,7 +60,9 @@ impl Runtime {
         let accounts_file =
             AccountsFile::load_with_options(&AccountsFile::default_path(), ignore_permissions)?;
         if insecure {
-            tracing::warn!("accepting invalid TLS certificates because --insecure was provided");
+            tracing::warn!(
+                "--insecure allows invalid TLS certificates only for loopback mail hosts"
+            );
         }
         Ok(Self {
             config,

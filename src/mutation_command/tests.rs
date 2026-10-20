@@ -29,6 +29,30 @@ fn dry_run_plan_resolves_storage_handle_and_serializes_json() {
 }
 
 #[test]
+fn prepare_mutation_refuses_virtual_source_mailbox() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (_store, account, handle) = fixture(tmp.path());
+    let mut catalog = Catalog::open(tmp.path()).unwrap();
+    let mut entry = catalog.entry("acct", &handle).unwrap();
+    let mut remote = entry.remote.clone().unwrap();
+    remote.remote_mailbox = "All Mail".into();
+    entry.remote = Some(remote);
+    catalog.upsert(&entry).unwrap();
+
+    let err = prepare_mutation(
+        &account,
+        tmp.path(),
+        &handle,
+        MutationAction::Expunge,
+        &capabilities(false, true),
+        true,
+    )
+    .unwrap_err();
+
+    assert!(err.to_string().contains("virtual mailbox"));
+}
+
+#[test]
 fn move_plan_rejects_internal_all_mail_folder_name() {
     let tmp = tempfile::tempdir().unwrap();
     let (_store, account, handle) = fixture(tmp.path());

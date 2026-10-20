@@ -19,9 +19,9 @@ pub(super) async fn fetch_remote_messages(
 ) -> Result<Vec<RemoteMessage>, VivariumError> {
     let mut session = connect(account, reject_invalid_certs).await?;
     let mailbox = session
-        .select(remote_folder)
+        .examine(remote_folder)
         .await
-        .map_err(|e| VivariumError::Imap(format!("select {remote_folder} failed: {e}")))?;
+        .map_err(|e| VivariumError::Imap(format!("examine {remote_folder} failed: {e}")))?;
 
     let count = mailbox.exists;
     if count == 0 {

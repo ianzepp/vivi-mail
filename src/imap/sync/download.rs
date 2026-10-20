@@ -12,8 +12,8 @@ use crate::storage::Storage;
 use crate::store::MailStore;
 use crate::sync::SyncResult;
 
-#[derive(Clone, Copy)]
-enum FetchMode {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FetchMode {
     Headers,
     Full,
 }
@@ -98,9 +98,9 @@ async fn worker(
 
     let mut session = connect(&context.account, context.reject_invalid_certs).await?;
     session
-        .select(&context.remote_folder)
+        .examine(&context.remote_folder)
         .await
-        .map_err(|e| VivariumError::Imap(format!("worker select failed: {e}")))?;
+        .map_err(|e| VivariumError::Imap(format!("worker examine failed: {e}")))?;
 
     while let Some(uids) = next_chunk(&chunks, &cursor).await {
         let uid_set = uid_set_string(&uids.iter().map(|msg| msg.uid).collect::<Vec<_>>());
@@ -141,12 +141,9 @@ async fn fetch_messages(
     uid_set: &str,
     mode: FetchMode,
 ) -> Result<Vec<async_imap::types::Fetch>, VivariumError> {
-    let fetch_items = match mode {
-        FetchMode::Headers => "BODY.PEEK[HEADER]",
-        FetchMode::Full => "BODY[]",
-    };
+    let items = peek_fetch_items(mode);
     let fetches = session
-        .uid_fetch(uid_set, fetch_items)
+        .uid_fetch(uid_set, items)
         .await
         .map_err(|e| VivariumError::Imap(format!("fetch failed: {e}")))?;
     fetches
@@ -180,6 +177,13 @@ fn process_messages(
         )?);
     }
     Ok(entries)
+}
+
+pub(super) fn peek_fetch_items(mode: FetchMode) -> &'static str {
+    match mode {
+        FetchMode::Headers => "BODY.PEEK[HEADER]",
+        FetchMode::Full => "BODY.PEEK[]",
+    }
 }
 
 fn fetched_bytes(fetch: &async_imap::types::Fetch, mode: FetchMode) -> Option<&[u8]> {

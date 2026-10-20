@@ -27,10 +27,7 @@ impl Account {
                 .output()
                 .await?;
             if !output.status.success() {
-                return Err(VivariumError::Config(format!(
-                    "password_cmd failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                )));
+                return Err(secret_cmd_failed("password_cmd", &self.name, output.status));
             }
             return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
         }
@@ -54,10 +51,7 @@ impl Account {
             .output()
             .await?;
         if !output.status.success() {
-            return Err(VivariumError::Config(format!(
-                "token_cmd failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
+            return Err(secret_cmd_failed("token_cmd", &self.name, output.status));
         }
 
         let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -70,12 +64,51 @@ impl Account {
         Ok(token)
     }
 
+    /// Whether this account should reject invalid TLS certificates.
+    ///
+    /// Validation is the default. `reject_invalid_certs = false` is honored
+    /// only for loopback mail hosts (local Bridge). Remote hosts always
+    /// validate, even if the account or `[defaults]` asked not to.
     #[must_use]
     pub fn reject_invalid_certs(&self, config: &Config) -> bool {
-        self.reject_invalid_certs.unwrap_or(match self.provider {
-            Provider::Protonmail => true,
-            _ => config.defaults.reject_invalid_certs,
-        })
+        let requested = self
+            .reject_invalid_certs
+            .unwrap_or(config.defaults.reject_invalid_certs);
+        if requested {
+            return true;
+        }
+        if self.mail_hosts_are_loopback() {
+            false
+        } else {
+            tracing::warn!(
+                account = self.name,
+                imap_host = self.resolved_imap_host(),
+                smtp_host = self.resolved_smtp_host(),
+                "ignoring reject_invalid_certs = false for non-loopback mail hosts"
+            );
+            true
+        }
+    }
+
+    /// Resolve TLS validation for one run, applying `--insecure` only to
+    /// loopback (local Bridge) accounts. Remote accounts keep validation.
+    #[must_use]
+    pub fn reject_invalid_certs_for_run(&self, config: &Config, insecure: bool) -> bool {
+        if insecure {
+            if self.mail_hosts_are_loopback() {
+                return false;
+            }
+            tracing::warn!(
+                account = self.name,
+                "--insecure ignored for non-loopback account; TLS validation stays on"
+            );
+        }
+        self.reject_invalid_certs(config)
+    }
+
+    #[must_use]
+    fn mail_hosts_are_loopback(&self) -> bool {
+        is_loopback_host(&self.resolved_imap_host()) && is_loopback_host(&self.resolved_smtp_host())
     }
 
     /// Resolve OAuth URLs: account-level overrides take priority, then provider defaults.
@@ -271,4 +304,16 @@ impl Account {
             _ => Security::Ssl,
         })
     }
+}
+
+#[must_use]
+pub(crate) fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim().trim_matches(['[', ']']);
+    matches!(host, "localhost" | "127.0.0.1" | "::1" | "0:0:0:0:0:0:0:1")
+}
+
+fn secret_cmd_failed(kind: &str, account: &str, status: std::process::ExitStatus) -> VivariumError {
+    VivariumError::Config(format!(
+        "{kind} failed for account '{account}' ({status}); command output is omitted"
+    ))
 }

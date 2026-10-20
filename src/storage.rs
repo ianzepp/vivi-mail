@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -118,8 +116,7 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to set SQLite timeout: {e}")))?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| VivariumError::Other(format!("failed to set WAL journal mode: {e}")))?;
-        #[cfg(unix)]
-        fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;
+        crate::store::secure_sqlite_path(db_path)?;
 
         ensure_schema(&conn)?;
 
@@ -223,29 +220,19 @@ fn blob_relpath(content_id: &str) -> String {
 }
 
 fn write_blob_if_absent(path: &Path, data: &[u8]) -> Result<bool, VivariumError> {
-    if path.exists() {
+    if blob_contents_match(path, data)? {
         return Ok(false);
     }
-    let Some(parent) = path.parent() else {
-        return Err(VivariumError::Other(format!(
-            "blob path has no parent: {}",
-            path.display()
-        )));
-    };
-    secure_create_dir_all(parent)
-        .map_err(|e| VivariumError::Other(format!("failed to create blob dir: {e}")))?;
-    match OpenOptions::new().write(true).create_new(true).open(path) {
-        Ok(mut file) => {
-            use std::io::Write;
-            file.write_all(data)?;
-            file.sync_all()?;
-            #[cfg(unix)]
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-            Ok(true)
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(e) => Err(VivariumError::Io(e)),
+    crate::store::atomic_write_private(path, data)?;
+    Ok(true)
+}
+
+fn blob_contents_match(path: &Path, data: &[u8]) -> Result<bool, VivariumError> {
+    if !path.exists() {
+        return Ok(false);
     }
+    let existing = fs::read(path)?;
+    Ok(existing.as_slice() == data)
 }
 
 fn remote_bound_message_id(
@@ -376,4 +363,8 @@ fn short_handle_map(message_ids: &[String]) -> HashMap<String, String> {
 pub(crate) fn sha256_hex(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     hex::encode(hash)
+}
+
+pub(crate) fn remote_size_key(local_role: &str, uidvalidity: u32, uid: u32) -> String {
+    format!("{local_role}-{uidvalidity}-{uid}")
 }

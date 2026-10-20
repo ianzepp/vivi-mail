@@ -414,7 +414,7 @@ fn local_size_fallback_uses_remote_uid_shape_for_storage_rows() {
         .unwrap();
 
     let sizes = storage.local_sizes_by_role("inbox").unwrap();
-    assert_eq!(sizes.get("inbox-7"), Some(&(raw.len() as u64)));
+    assert_eq!(sizes.get("inbox-42-7"), Some(&(raw.len() as u64)));
 }
 
 #[test]
@@ -546,7 +546,7 @@ fn mark_message_deleted_scopes_to_the_given_account() {
 
     // Original message must be unchanged.
     let sizes = storage.local_sizes_by_role("inbox").unwrap();
-    assert!(sizes.contains_key("inbox-5"));
+    assert!(sizes.contains_key("inbox-42-5"));
 }
 
 #[test]
@@ -588,6 +588,117 @@ fn mark_message_deleted_is_idempotent() {
             .mark_message_deleted("acct", &stored.message_id)
             .unwrap()
     );
+}
+
+#[test]
+fn ingest_rewrites_truncated_blob() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = message_bytes("trunc@example.com", "complete-body");
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let stored = storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:21".into(),
+                remote: None,
+            },
+            &raw,
+        )
+        .unwrap();
+    let blob = tmp.path().join(&stored.blob_relpath);
+    fs::write(&blob, &raw[..6]).unwrap();
+
+    let rewritten = storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:21".into(),
+                remote: None,
+            },
+            &raw,
+        )
+        .unwrap();
+
+    assert!(rewritten.created_blob);
+    assert_eq!(fs::read(&blob).unwrap(), raw);
+}
+
+#[cfg(unix)]
+#[test]
+fn storage_open_tightens_wal_and_shm_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:1".into(),
+                remote: None,
+            },
+            &message_bytes("wal@example.com", "body"),
+        )
+        .unwrap();
+    drop(storage);
+
+    let db = tmp.path().join(".vivarium").join("storage.sqlite");
+    crate::store::secure_sqlite_path(&db).unwrap();
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&db), 0o600);
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = {
+            let mut name = db.file_name().unwrap().to_os_string();
+            name.push(suffix);
+            db.with_file_name(name)
+        };
+        if sidecar.exists() {
+            assert_eq!(mode(&sidecar), 0o600, "{}", sidecar.display());
+        }
+    }
+}
+
+#[test]
+fn mark_stale_uidvalidity_flags_old_bindings() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = message_bytes("stale@example.com", "body");
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:9".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "acct".into(),
+                    provider: "standard".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 9,
+                    remote_uidvalidity: 1,
+                }),
+            },
+            &raw,
+        )
+        .unwrap();
+
+    let changed = storage.mark_stale_uidvalidity("acct", "INBOX", 99).unwrap();
+    assert_eq!(changed, 1);
+    let unchanged = storage.mark_stale_uidvalidity("acct", "INBOX", 99).unwrap();
+    assert_eq!(unchanged, 0);
 }
 
 // ---------------------------------------------------------------------------

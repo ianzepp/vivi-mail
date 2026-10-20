@@ -1,6 +1,3 @@
-use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use chrono::Utc;
@@ -48,8 +45,7 @@ impl EmbeddingStore {
         ));
         let conn = Connection::open(&path)
             .map_err(|e| VivariumError::Other(format!("failed to open embedding DB: {e}")))?;
-        #[cfg(unix)]
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        crate::store::secure_sqlite_path(&path)?;
         let store = Self { conn };
         store.ensure_schema()?;
         store.write_metadata(provider, model)?;

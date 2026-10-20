@@ -271,6 +271,8 @@ impl AgentLedger {
         secure_create_dir_all(&dir)?;
         let conn = Connection::open(dir.join("agent.sqlite"))
             .map_err(|e| VivariumError::Other(format!("failed to open agent ledger: {e}")))?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| VivariumError::Other(format!("failed to enable foreign keys: {e}")))?;
         let ledger = Self { conn };
         ledger.ensure_schema()?;
         Ok(ledger)

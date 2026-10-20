@@ -670,6 +670,37 @@ fn storage_open_tightens_wal_and_shm_permissions() {
 }
 
 #[test]
+fn storage_open_enables_foreign_keys() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = Storage::open(tmp.path()).unwrap();
+    let enabled: i64 = storage
+        .conn
+        .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(enabled, 1);
+}
+
+#[test]
+fn storage_rejects_message_row_without_blob() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = Storage::open(tmp.path()).unwrap();
+    let err = storage
+        .conn
+        .execute(
+            "INSERT INTO messages (
+               message_id, account, content_id, local_role, read_state, starred,
+               discovered_at, updated_at
+             ) VALUES ('msg_orphan', 'acct', 'missing-blob', 'inbox', 0, 0, 'now', 'now')",
+            [],
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("FOREIGN KEY"),
+        "orphan message insert must fail under foreign_keys: {err}"
+    );
+}
+
+#[test]
 fn mark_stale_uidvalidity_flags_old_bindings() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("stale@example.com", "body");

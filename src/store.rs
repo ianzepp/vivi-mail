@@ -18,8 +18,10 @@ mod tests;
 
 pub use path::message_id_from_path;
 use path::{canonical_folder, display_message_id, is_message_file, maildir_filename};
-pub(crate) use secure::secure_create_dir_all;
-use secure::{secure_create_file, secure_file};
+use secure::secure_file;
+pub(crate) use secure::{
+    atomic_write_private, secure_create_dir_all, secure_create_file, secure_sqlite_path,
+};
 
 /// Local staging folders retained for draft/outbox file workflows.
 const FOLDERS: &[&str] = &[

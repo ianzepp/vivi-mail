@@ -46,6 +46,36 @@ impl Storage {
         Ok(changed > 0)
     }
 
+    /// Mark remote bindings for a mailbox as stale when UIDVALIDITY has changed.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database update fails.
+    pub fn mark_stale_uidvalidity(
+        &mut self,
+        account: &str,
+        remote_mailbox: &str,
+        current_uidvalidity: u32,
+    ) -> Result<usize, VivariumError> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE remote_bindings
+                 SET stale = 1
+                 WHERE account = ?1
+                   AND remote_mailbox = ?2
+                   AND remote_uidvalidity != ?3
+                   AND stale = 0",
+                params![account, remote_mailbox, current_uidvalidity],
+            )
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to mark stale UIDVALIDITY bindings: {e}"))
+            })?;
+        if changed > 0 {
+            self.invalidate_handle_cache();
+        }
+        Ok(changed)
+    }
+
     /// Mark a message as deleted (soft delete via `deleted_at` timestamp).
     ///
     /// # Errors

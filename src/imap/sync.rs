@@ -146,12 +146,15 @@ fn sync_folders(account: &Account, all: bool) -> Vec<FolderPlan> {
         },
     ];
 
-    if all && matches!(account.provider, Provider::Gmail | Provider::Protonmail) {
-        folders.push(FolderPlan {
-            remote_folder: account.all_mail_folder().into(),
-            local_folder: "archive",
-            dedupe_scope: DedupeScope::AllFolders,
-        });
+    if all {
+        let archive = account.archive_folder();
+        if !crate::imap::is_unsafe_sync_mailbox(&archive) {
+            folders.push(FolderPlan {
+                remote_folder: archive,
+                local_folder: "archive",
+                dedupe_scope: DedupeScope::AllFolders,
+            });
+        }
     }
 
     folders
@@ -184,7 +187,11 @@ fn find_missing(
             continue;
         }
 
-        let msg_id = format!("{local_folder}-{}", remote.uid);
+        let Some(uidvalidity) = remote.uidvalidity else {
+            missing.push(remote.clone());
+            continue;
+        };
+        let msg_id = crate::storage::remote_size_key(local_folder, uidvalidity, remote.uid);
         if let Some(local_size) = local_sizes.get(&msg_id)
             && *local_size == remote.size
         {
@@ -269,6 +276,9 @@ fn refresh_remote_flags(
     remote_folder: &str,
     remote_messages: &[RemoteMessage],
 ) -> Result<(), VivariumError> {
+    if let Some(uidvalidity) = remote_messages.iter().find_map(|remote| remote.uidvalidity) {
+        storage.mark_stale_uidvalidity(account, remote_folder, uidvalidity)?;
+    }
     for remote in remote_messages {
         let Some(uidvalidity) = remote.uidvalidity else {
             continue;

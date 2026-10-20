@@ -178,12 +178,20 @@ impl Storage {
         Ok(messages
             .into_iter()
             .map(|message| {
-                let key = message
-                    .remote
-                    .as_ref()
-                    .map(|remote| format!("{local_role}-{}", remote.remote_uid))
-                    .unwrap_or(message.message_id);
-                (key, message.byte_size)
+                let key = message.remote.as_ref().map_or_else(
+                    || message.message_id.clone(),
+                    |remote| {
+                        super::remote_size_key(
+                            local_role,
+                            remote.remote_uidvalidity,
+                            remote.remote_uid,
+                        )
+                    },
+                );
+                let size = fs::metadata(self.mail_root.join(&message.blob_relpath))
+                    .map(|meta| meta.len())
+                    .unwrap_or(0);
+                (key, size)
             })
             .collect())
     }

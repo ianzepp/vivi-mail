@@ -78,6 +78,17 @@ fn next_batch_groups_unprocessed_trusted_thread_messages() {
 }
 
 #[test]
+fn agent_ledger_open_enables_foreign_keys() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ledger = AgentLedger::open(tmp.path()).unwrap();
+    let enabled: i64 = ledger
+        .conn
+        .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(enabled, 1);
+}
+
+#[test]
 fn prompt_paths_prefer_account_specific_prompt() {
     let paths = prompt::prompt_paths("agent-proton");
 

@@ -116,6 +116,8 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to set SQLite timeout: {e}")))?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| VivariumError::Other(format!("failed to set WAL journal mode: {e}")))?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| VivariumError::Other(format!("failed to enable foreign keys: {e}")))?;
         crate::store::secure_sqlite_path(db_path)?;
 
         ensure_schema(&conn)?;

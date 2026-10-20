@@ -24,7 +24,10 @@ impl ProtonEvent {
 pub struct ProtonMessageEvent {
     #[serde(rename = "ID", default)]
     pub id: String,
-    #[serde(rename = "Action", default, deserialize_with = "deserialize_action")]
+    /// Required. A missing Action must not deserialize: the enum default
+    /// used to be Delete, which would locally delete mail for a malformed
+    /// event.
+    #[serde(rename = "Action", deserialize_with = "deserialize_action")]
     pub action: ProtonEventAction,
     #[serde(rename = "Message", default)]
     pub message: Option<ProtonMessage>,
@@ -43,10 +46,9 @@ where
     })
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ProtonEventAction {
     #[serde(rename = "0")]
-    #[default]
     Delete,
     #[serde(rename = "1")]
     Create,

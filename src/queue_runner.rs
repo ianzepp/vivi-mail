@@ -130,27 +130,95 @@ impl Runtime {
             ids
         };
         for id in ids {
-            let mut item = queue::load(&mail_root, &id)?;
-            if item.status != QueueStatus::Pending {
-                return Err(VivariumError::Message(format!(
-                    "queued item {} is {:?}, not pending",
-                    item.id, item.status
-                )));
-            }
-            match self.execute_queued(item.command.clone(), false).await {
-                Ok(()) => {
-                    item.mark(QueueStatus::Executed, None);
-                    queue::save(&mail_root, &item)?;
-                    println!("queue executed {}", item.id);
-                }
-                Err(err) => {
-                    item.mark(QueueStatus::Failed, Some(err.to_string()));
-                    queue::save(&mail_root, &item)?;
-                    return Err(err);
-                }
-            }
+            self.run_one_queued_item(&mail_root, &id).await?;
         }
         Ok(())
+    }
+
+    async fn run_one_queued_item(
+        &self,
+        mail_root: &std::path::Path,
+        id: &str,
+    ) -> Result<(), VivariumError> {
+        let mut item = queue::load(mail_root, id)?;
+        if item.status == QueueStatus::Sending {
+            println!(
+                "queue skipped {} (send already attempted; not retrying to avoid a duplicate)",
+                item.id
+            );
+            return Ok(());
+        }
+        if item.status != QueueStatus::Pending {
+            return Err(VivariumError::Message(format!(
+                "queued item {} is {:?}, not pending",
+                item.id, item.status
+            )));
+        }
+        if matches!(item.command, QueuedCommand::Send { .. }) {
+            return self.run_queued_send(mail_root, item).await;
+        }
+        match self.execute_queued(item.command.clone(), false).await {
+            Ok(()) => {
+                item.mark(QueueStatus::Executed, None);
+                queue::save(mail_root, &item)?;
+                println!("queue executed {}", item.id);
+                Ok(())
+            }
+            Err(err) => {
+                item.mark(QueueStatus::Failed, Some(err.to_string()));
+                queue::save(mail_root, &item)?;
+                Err(err)
+            }
+        }
+    }
+
+    /// Record send intent before SMTP. Remaining semantics: a crash after
+    /// `sending` is fsynced never resends that Message-ID (at-most-once).
+    /// If SMTP never ran, drop the stuck item and re-enqueue only after
+    /// confirming the message did not arrive. Failed SMTP does not block a
+    /// later enqueue of a new item.
+    async fn run_queued_send(
+        &self,
+        mail_root: &std::path::Path,
+        mut item: QueueItem,
+    ) -> Result<(), VivariumError> {
+        let QueuedCommand::Send { path, from } = item.command.clone() else {
+            return Err(VivariumError::Message(
+                "queued send expected a send command".into(),
+            ));
+        };
+        let acct = self.resolve_account(self.account.clone())?;
+        if let Err(err) = policy::authorize(&acct, &item.command) {
+            item.mark(QueueStatus::Failed, Some(err.to_string()));
+            queue::save(mail_root, &item)?;
+            return Err(err);
+        }
+        let data = std::fs::read(&path)?;
+        let key = queue::send_dedupe_key(&data);
+        let history = queue::list(mail_root, true)?;
+        if queue::send_already_attempted(&history, &key, &item.id) {
+            item.send_message_id = Some(key);
+            item.mark(QueueStatus::Executed, None);
+            queue::save(mail_root, &item)?;
+            println!("queue executed {} (already sent)", item.id);
+            return Ok(());
+        }
+        item.send_message_id = Some(key);
+        item.mark(QueueStatus::Sending, None);
+        queue::save(mail_root, &item)?;
+        match self.send_path(&path, from.as_deref()).await {
+            Ok(()) => {
+                item.mark(QueueStatus::Executed, None);
+                queue::save(mail_root, &item)?;
+                println!("queue executed {}", item.id);
+                Ok(())
+            }
+            Err(err) => {
+                item.mark(QueueStatus::Failed, Some(err.to_string()));
+                queue::save(mail_root, &item)?;
+                Err(err)
+            }
+        }
     }
 
     async fn execute_queued(

@@ -77,6 +77,82 @@ async fn queue_run_rejects_stale_delete_under_read_only() {
 }
 
 #[tokio::test]
+async fn queue_run_does_not_resend_sending_item() {
+    let tmp = tempfile::tempdir().unwrap();
+    let runtime = test_runtime(tmp.path(), MutationPolicy::FullWrite);
+    let mail_root = runtime
+        .resolve_account(runtime.account.clone())
+        .unwrap()
+        .mail_path(&runtime.config);
+    let mut item = QueueItem::new(
+        "test".into(),
+        QueuedCommand::Send {
+            path: tmp.path().join("draft.eml"),
+            from: None,
+        },
+    );
+    item.send_message_id = Some("msgid:once@example.com".into());
+    item.mark(QueueStatus::Sending, None);
+    queue::enqueue(&mail_root, &item).unwrap();
+
+    runtime
+        .queue_run(vec![item.id.clone()], false)
+        .await
+        .unwrap();
+
+    let loaded = queue::load(&mail_root, &item.id).unwrap();
+    assert_eq!(loaded.status, QueueStatus::Sending);
+}
+
+#[tokio::test]
+async fn queue_run_skips_send_when_message_id_already_executed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let runtime = test_runtime(tmp.path(), MutationPolicy::FullWrite);
+    let mail_root = runtime
+        .resolve_account(runtime.account.clone())
+        .unwrap()
+        .mail_path(&runtime.config);
+    let eml = tmp.path().join("draft.eml");
+    std::fs::write(
+        &eml,
+        b"From: test@example.com\r\nTo: you@example.com\r\nMessage-ID: <once@example.com>\r\nSubject: hi\r\n\r\nbody",
+    )
+    .unwrap();
+
+    let mut prior = QueueItem::new(
+        "test".into(),
+        QueuedCommand::Send {
+            path: eml.clone(),
+            from: None,
+        },
+    );
+    prior.send_message_id = Some("msgid:once@example.com".into());
+    prior.mark(QueueStatus::Executed, None);
+    queue::enqueue(&mail_root, &prior).unwrap();
+
+    let pending = QueueItem::new(
+        "test".into(),
+        QueuedCommand::Send {
+            path: eml,
+            from: None,
+        },
+    );
+    queue::enqueue(&mail_root, &pending).unwrap();
+
+    runtime
+        .queue_run(vec![pending.id.clone()], false)
+        .await
+        .unwrap();
+
+    let loaded = queue::load(&mail_root, &pending.id).unwrap();
+    assert_eq!(loaded.status, QueueStatus::Executed);
+    assert_eq!(
+        loaded.send_message_id.as_deref(),
+        Some("msgid:once@example.com")
+    );
+}
+
+#[tokio::test]
 async fn queue_run_rejects_stale_send_under_archive() {
     let tmp = tempfile::tempdir().unwrap();
     let runtime = test_runtime(tmp.path(), MutationPolicy::Archive);

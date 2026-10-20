@@ -19,12 +19,17 @@ pub struct QueueItem {
     pub status: QueueStatus,
     pub command: QueuedCommand,
     pub error: Option<String>,
+    /// RFC 5322 Message-ID (or content hash) recorded before a send attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueueStatus {
     Pending,
+    /// Intent to send has been fsynced; SMTP may or may not have completed.
+    Sending,
     Executed,
     Failed,
     Dropped,
@@ -76,6 +81,7 @@ impl QueueItem {
             status: QueueStatus::Pending,
             command,
             error: None,
+            send_message_id: None,
         }
     }
 
@@ -84,6 +90,33 @@ impl QueueItem {
         self.error = error;
         self.updated_at = Utc::now().to_rfc3339();
     }
+}
+
+impl QueueStatus {
+    #[must_use]
+    pub fn blocks_resend(self) -> bool {
+        matches!(self, Self::Sending | Self::Executed)
+    }
+}
+
+/// Stable send dedupe key: RFC 5322 Message-ID, or a content hash if none.
+#[must_use]
+pub fn send_dedupe_key(data: &[u8]) -> String {
+    crate::message::message_id_from_bytes(data).map_or_else(
+        || format!("sha256:{}", crate::storage::sha256_hex(data)),
+        |id| format!("msgid:{id}"),
+    )
+}
+
+/// True when a previous queue item already recorded this send key as sending
+/// or executed. Failed/dropped items do not block a later retry.
+#[must_use]
+pub fn send_already_attempted(items: &[QueueItem], key: &str, except_id: &str) -> bool {
+    items.iter().any(|item| {
+        item.id != except_id
+            && item.send_message_id.as_deref() == Some(key)
+            && item.status.blocks_resend()
+    })
 }
 
 /// Enqueue a queue item to disk.
